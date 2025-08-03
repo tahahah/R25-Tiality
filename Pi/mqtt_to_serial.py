@@ -29,16 +29,30 @@ log_level = getattr(logging, args.loglevel.upper())
 logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def on_connect(client, userdata, flags, rc):
+    """Callback for when the client connects to the broker."""
     if rc == 0:
-        logging.info(f"Connected to MQTT Broker at {MQTT_BROKER_HOST}")
+        logging.info(f"Successfully connected to MQTT Broker at {MQTT_BROKER_HOST}")
         client.subscribe(TX_TOPIC)
-        logging.info(f"Subscribed to topic: {TX_TOPIC}")
+        logging.info(f"Subscribed to topic: '{TX_TOPIC}'")
     else:
-        logging.error(f"Failed to connect to MQTT broker, return code {rc}\n")
+        # Provide a more descriptive error message based on the return code.
+        err_msg = {
+            1: "Connection refused - incorrect protocol version",
+            2: "Connection refused - invalid client identifier",
+            3: "Connection refused - server unavailable",
+            4: "Connection refused - bad username or password",
+            5: "Connection refused - not authorised"
+        }.get(rc, "Unknown error")
+        logging.error(f"Failed to connect to MQTT broker: {err_msg} (rc: {rc})")
 
 def on_message(client, userdata, msg):
     """Callback for when a message is received from the MQTT broker."""
+    # Log the received message first for debugging.
+    payload_str = msg.payload.decode('utf-8', errors='ignore')
+    logging.info(f"MQTT RX on '{msg.topic}': {payload_str}")
+
     try:
+        # Forward the raw payload to the serial port.
         ser.write(msg.payload)
         logging.debug(f"Wrote to serial: {msg.payload.hex()}")
     except Exception as e:

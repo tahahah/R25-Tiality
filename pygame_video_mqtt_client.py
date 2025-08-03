@@ -17,7 +17,7 @@ import video_stream_pb2_grpc as pb2g
 # ------------------------ Default Configuration ------------------------
 PI_IP_ADDRESS = "192.168.0.151"  # Change to your Raspberry Pi's IP
 GRPC_PORT = 50051
-MQTT_BROKER_HOST = "192.168.0.209"  # Change to your laptop/host running Mosquitto
+MQTT_BROKER_HOST = "localhost"  # Change to your laptop/host running Mosquitto
 TX_TOPIC = "robot/tx"
 
 
