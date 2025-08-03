@@ -43,13 +43,13 @@ echo "--- Starting services ---"
 
 # Start gRPC video server in the background
 echo "Starting gRPC video server..."
-python3 app/video_server.py &
+python3 video_server.py &
 VIDEO_PID=$!
 echo "Video server started with PID $VIDEO_PID."
 
 # Start MQTT bridge in the foreground (it will block here)
 echo "Starting MQTT bridge to broker at $LAPTOP_IP... (Press Ctrl+C to stop all)"
-python3 app/mqtt_to_serial.py --broker "$LAPTOP_IP"
+python3 mqtt_to_serial.py --broker "$LAPTOP_IP"
 
 # The script will only reach here if the mqtt bridge exits without Ctrl+C
 wait $VIDEO_PID
