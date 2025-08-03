@@ -1,9 +1,8 @@
 import pygame
 import sys
 import logging
-from typing import Callable, Optional, Dict, Tuple, List
-from enum import Enum
-from dataclasses import dataclass
+from typing import Callable, Optional, List
+from gui_config import ConnectionStatus, ArmState, Colour, GuiConfig
 
 # Configure logging
 logging.basicConfig(
@@ -11,43 +10,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-
-class ConnectionStatus(Enum):
-    """Connection status enumeration."""
-    CONNECTED = "CONNECTED"
-    DISCONNECTED = "DISCONNECTED"
-    CONNECTING = "CONNECTING"
-
-
-class ArmState(Enum):
-    """Arm position state enumeration."""
-    EXTENDED = "EXTENDED"
-    RETRACTED = "RETRACTED"
-
-
-@dataclass
-class Colour:
-    """Colour constants for the GUI."""
-    WHITE = (255, 255, 255)
-    BLACK = (0, 0, 0)
-    GREEN = (0, 255, 0)
-    RED = (255, 0, 0)
-    BLUE = (0, 0, 255)
-    YELLOW = (255, 255, 0)
-    BEIGE = (222, 196, 160)
-
-
-@dataclass
-class GuiConfig:
-    """Configuration constants for the GUI."""
-    SCREEN_WIDTH: int = 1280
-    SCREEN_HEIGHT: int = 720
-    CAMERA_WIDTH: int = 350
-    CAMERA_HEIGHT: int = 240
-    FPS: int = 60
-    NUM_CAMERAS: int = 2
-
 
 class ExplorerGUI:
     """
@@ -471,7 +433,7 @@ if __name__ == "__main__":
     print()
     
     # Configure Background Path
-    image_path = "wildlife_explorer.png"
+    image_path = "GUI/wildlife_explorer.png"
     
     if not os.path.exists(image_path):
         print(f"Image file '{image_path}' not found.")
