@@ -1,5 +1,6 @@
-logging
-sys
 opencv-python
 grpcio
 numpy
+pygame
+paho-mqtt
+protobuf
