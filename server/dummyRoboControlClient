@@ -1,0 +1,13 @@
+import socket
+import numpy
+import time
+import threading
+
+client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client.connect(('127.0.0.1', 8001))
+
+while True:
+    try:
+        print(client.recv(1024).decode())
+    finally:
+        connected = False
