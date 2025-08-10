@@ -12,7 +12,7 @@ import video_stream_pb2_grpc as pb2g
 
 # --- Configuration ---
 # IMPORTANT: Change this to the IP address of your Raspberry Pi
-PI_IP_ADDRESS = "192.168.0.151"  # Replace with your Pi's actual IP
+PI_IP_ADDRESS = "192.168.0.114"  # Replace with your Pi's actual IP
 GRPC_PORT = 50051
 
 logging.basicConfig(
