@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package video;
+
+service VideoStream {
+  rpc StreamFrames(Empty) returns (stream Frame);
+}
+
+message Empty {}
+
+message Frame {
+  bytes jpeg_data = 1;
+  int64 timestamp_ms = 2;
+}
