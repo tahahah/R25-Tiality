@@ -24,14 +24,28 @@ pip install -r app/requirements.txt   # includes paho-mqtt, pyserial
 ```
 
 ### Run on the Pi
+The setup script will automatically install and start a local Mosquitto MQTT broker on the Pi:
 ```bash
-python3 app/mqtt_to_serial.py \
-        --broker <LAPTOP_IP>          # e.g. 192.168.0.127
+./setup.sh
+```
+This will start both the video server and MQTT-to-serial bridge with a local broker.
+
+Alternatively, run manually:
+```bash
+# Start local MQTT broker
+mosquitto -d
+
+# Start the bridge (uses localhost by default)
+python3 mqtt_to_serial.py
 ```
 Leave this terminal open; the script prints connection / error logs.
 
 ### Run on the laptop
-Robot code should use `robot.port=mqtt://<laptop_ip>` (already handled by `MQTTSerial`).
+Robot code should connect to the Pi's MQTT broker using `robot.port=mqtt://<PI_IP>` (handled by `MQTTSerial`).
+Use the pygame client to connect:
+```bash
+python pygame_video_mqtt_client.py --pi_ip <PI_IP>
+```
 
 ---
 
@@ -72,5 +86,5 @@ Using both protocols in parallel gives the robot the **robustness** of MQTT for 
 |---------|-----|
 | `Permission denied /dev/ttyAMA0` | `sudo usermod -a -G dialout taha` (reboot) |
 | `Could not open camera /dev/video0` | Ensure user is in `video` group or run with sudo; verify with `v4l2-ctl --list-devices` |
-| MQTT timeout | Check broker IP, `docker run -p 1883:1883 eclipse-mosquitto`, open firewall port 1883 |
+| MQTT timeout | Ensure Mosquitto is running on Pi: `pgrep mosquitto`. Check firewall if connecting from other devices. |
 | gRPC timeout | Ensure `video_server.py` is running and port 50051 reachable |

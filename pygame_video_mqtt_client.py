@@ -18,7 +18,7 @@ import video_stream_pb2_grpc as pb2g
 # ------------------------ Default Configuration ------------------------
 PI_IP_ADDRESS = "192.168.0.114"  # Change to your Raspberry Pi's IP
 GRPC_PORT = 50051
-MQTT_BROKER_HOST = "192.168.0.115"  # Change to your laptop/host running Mosquitto
+MQTT_BROKER_HOST = "192.168.0.114"  # Pi now runs the MQTT broker (same as PI_IP_ADDRESS)
 TX_TOPIC = "robot/tx"
 
 
@@ -212,7 +212,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Pygame video client with MQTT keyboard input")
     parser.add_argument("--pi_ip", default=PI_IP_ADDRESS, help="Raspberry Pi IP address hosting gRPC server")
     parser.add_argument("--grpc_port", type=int, default=GRPC_PORT, help="gRPC port")
-    parser.add_argument("--broker", default=MQTT_BROKER_HOST, help="MQTT broker host (laptop/host IP)")
+    parser.add_argument("--broker", default=MQTT_BROKER_HOST, help="MQTT broker host (Pi IP address)")
     parser.add_argument("--loglevel", default="info", choices=["debug", "info", "warning", "error", "critical"], help="Logging level")
     parser.add_argument("--no-video", action="store_true", help="Disable video; run joystick→MQTT only")
     return parser.parse_args()
