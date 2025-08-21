@@ -6,6 +6,9 @@
 
 set -e # Exit on any error
 
+# Resolve the directory of this script so paths work regardless of CWD
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Function to clean up background processes on exit
 cleanup() {
     echo "\nShutting down services..."
@@ -41,11 +44,11 @@ sudo systemctl stop mosquitto 2>/dev/null || true
 sudo systemctl disable mosquitto 2>/dev/null || true
 
 echo "--- Setting up Python environment ---"
-if [ ! -d .venv ]; then
-    python3 -m venv .venv
+if [ ! -d "$SCRIPT_DIR/../.venv" ]; then
+    python3 -m venv "$SCRIPT_DIR/../.venv"
 fi
-source .venv/bin/activate
-pip install -r requirements.txt
+source "$SCRIPT_DIR/../.venv/bin/activate"
+pip install -r "$SCRIPT_DIR/requirements.txt"
 
 echo "--- Starting services ---"
 
@@ -57,13 +60,13 @@ echo "Mosquitto broker started with PID $MOSQUITTO_PID."
 
 # Start gRPC video server in the background
 echo "Starting gRPC video server..."
-python3 video_server.py &
+python3 "$SCRIPT_DIR/video_server.py" &
 VIDEO_PID=$!
 echo "Video server started with PID $VIDEO_PID."
 
-# Start MQTT bridge in the foreground (it will block here)
-echo "Starting MQTT bridge to local broker... (Press Ctrl+C to stop all)"
-python3 mqtt_to_serial.py --broker "localhost"
+# Start MQTT->PWM controller in the foreground (it will block here)
+echo "Starting MQTT->PWM controller... (Press Ctrl+C to stop all)"
+python3 "$SCRIPT_DIR/mqtt_to_pwm.py" --broker "localhost"
 
 # The script will only reach here if the mqtt bridge exits without Ctrl+C
 wait $VIDEO_PID

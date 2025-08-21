@@ -9,6 +9,7 @@ import numpy as np
 import time
 import paho.mqtt.client as mqtt
 import pygame
+import json
 
 # Allow importing generated gRPC stubs no matter where they live
 sys.path.extend(["Pi", "app"])  # 'app' for historical reasons
@@ -106,6 +107,8 @@ def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: 
     SEND_INTERVAL = 0.10  # seconds
     last_send_time = 0.0
     last_payload: Optional[str] = None
+    # Ramp time for spool commands (ms)
+    SPOOL_RAMP_MS = 2000
 
     try:
         if use_video:
@@ -198,9 +201,24 @@ def handle_key_event(event: pygame.event.Event, mqtt_client: mqtt.Client):
     # Use pygame's key name for readability (e.g. "up", "a", etc.)
     key_name = pygame.key.name(event.key)
     logging.debug("Key pressed: %s", key_name)
+    # Map certain keys to structured JSON commands for precise motor control
+    cmd = None
+    if key_name in ("up", "w"):
+        cmd = {"type": "all", "action": "spool", "direction": "forward", "target": 100, "ramp_ms": 2000}
+    elif key_name in ("down", "s", "x"):
+        cmd = {"type": "all", "action": "spool", "direction": "reverse", "target": 100, "ramp_ms": 2000}
+    elif key_name in ("space",):
+        cmd = {"type": "all", "action": "stop"}
+
+    payload_bytes: bytes
+    if cmd is not None:
+        payload_bytes = json.dumps(cmd).encode()
+    else:
+        # Fallback to publishing raw key name
+        payload_bytes = key_name.encode()
 
     try:
-        mqtt_client.publish(TX_TOPIC, payload=key_name.encode(), qos=0)
+        mqtt_client.publish(TX_TOPIC, payload=payload_bytes, qos=0)
     except Exception as exc:
         logging.error("Failed to publish MQTT message: %s", exc)
 
