@@ -52,9 +52,12 @@ pip install -r "$SCRIPT_DIR/requirements.txt"
 
 echo "--- Starting services ---"
 
-# Start Mosquitto broker in the background
-echo "Starting local Mosquitto MQTT broker..."
-mosquitto -d
+# Start Mosquitto broker in the background with external access
+echo "Starting local Mosquitto MQTT broker with external access..."
+# Create a temporary config file
+echo "listener 1883 0.0.0.0" > /tmp/mosquitto.conf
+echo "allow_anonymous true" >> /tmp/mosquitto.conf
+mosquitto -c /tmp/mosquitto.conf -d
 MOSQUITTO_PID=$(pgrep mosquitto)
 echo "Mosquitto broker started with PID $MOSQUITTO_PID."
 
