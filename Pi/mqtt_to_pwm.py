@@ -28,6 +28,13 @@ MOTOR_COMPENSATION = {
     "reverse": [1.0, 0.85, 1.0, 0.85],  # Adjust these based on testing
 }
 
+# Wheel layout mapping and polarity for mecanum/omni drive
+# Positions order: [FL, FR, RL, RR] -> maps to indices in self.motors
+# Adjust MOTOR_ORDER if your wiring order does not match [front-left, front-right, rear-left, rear-right]
+# Set MOTOR_POLARITY element to -1 to invert a wheel if its "forward" is electrically reversed
+MOTOR_ORDER = [0, 1, 2, 3]
+MOTOR_POLARITY = [1, 1, 1, 1]
+
 MQTT_BROKER_HOST = "localhost"
 TX_TOPIC = "robot/tx"
 RX_TOPIC = "robot/rx"
@@ -117,41 +124,52 @@ class MotorController:
             comp_speed = speed * comp_factors[i]
             m.set_duty(comp_speed)
 
-    def set_vector(self, vx: float, vy: float):
-        """Crab-walk (lateral + forward) vector control for mecanum/omni wheels.
-        Inputs are percentages in range [-100..100]. Positive vy = forward, positive vx = right.
+    def set_vector(self, vx: float, vy: float, omega: float = 0.0):
+        """Mecanum mixing for true crab-walk (lateral) and forward motion.
+        Inputs are percentages in range [-100..100].
+          - vy: forward is positive
+          - vx: right (lateral) is positive
+          - omega: rotate clockwise is positive (optional; default 0)
 
-        Assumed motor index mapping:
-          0: front-left, 1: front-right, 2: rear-left, 3: rear-right
+        Standard mecanum formula (see referenced blog):
+          FL = vy + vx + omega
+          FR = vy - vx - omega
+          RL = vy - vx + omega
+          RR = vy + vx - omega
 
-        Mixing (no rotation):
-          FL = vy + vx
-          FR = vy - vx
-          RL = vy - vx
-          RR = vy + vx
+        Results are then mapped through MOTOR_ORDER and MOTOR_POLARITY to match wiring.
         """
         # Clamp inputs
         vx = max(-100.0, min(100.0, float(vx)))
         vy = max(-100.0, min(100.0, float(vy)))
+        omega = max(-100.0, min(100.0, float(omega)))
 
-        # Compute mixed wheel commands
-        w = [
-            vy + vx,  # FL
-            vy - vx,  # FR
-            vy - vx,  # RL
-            vy + vx,  # RR
+        # Compute theoretical wheel commands in [FL, FR, RL, RR]
+        wheel_cmds = [
+            vy + vx + omega,  # FL
+            vy - vx - omega,  # FR
+            vy - vx + omega,  # RL
+            vy + vx - omega,  # RR
         ]
 
-        # Normalize if any exceeds magnitude 100
-        max_mag = max(abs(val) for val in w) or 1.0
+        # Normalize to keep within [-100, 100]
+        max_mag = max(abs(val) for val in wheel_cmds) or 1.0
         if max_mag > 100.0:
             scale = 100.0 / max_mag
-            w = [val * scale for val in w]
+            wheel_cmds = [val * scale for val in wheel_cmds]
 
-        # Apply per-wheel direction and compensation
-        for i, (m, cmd) in enumerate(zip(self.motors, w)):
+        logging.debug(
+            "Mecanum mix (vx=%.1f, vy=%.1f, w=%.1f) -> FL=%.1f FR=%.1f RL=%.1f RR=%.1f",
+            vx, vy, omega, wheel_cmds[0], wheel_cmds[1], wheel_cmds[2], wheel_cmds[3]
+        )
+
+        # Apply mapping to physical motors and compensation/polarity
+        for pos_idx, base_cmd in enumerate(wheel_cmds):
+            motor_idx = MOTOR_ORDER[pos_idx]
+            m = self.motors[motor_idx]
+            cmd = base_cmd * (1 if MOTOR_POLARITY[pos_idx] >= 0 else -1)
             direction = "forward" if cmd >= 0 else "reverse"
-            comp = MOTOR_COMPENSATION.get(direction, [1.0, 1.0, 1.0, 1.0])[i]
+            comp = MOTOR_COMPENSATION.get(direction, [1.0, 1.0, 1.0, 1.0])[motor_idx]
             m.set_direction(direction)
             m.set_duty(abs(cmd) * comp)
 
@@ -255,8 +273,9 @@ def handle_command(ctrl: MotorController, cmd: dict, client: mqtt.Client):
         if action == "set":
             vx = float(cmd.get("vx", 0))
             vy = float(cmd.get("vy", 0))
-            ctrl.set_vector(vx, vy)
-            client.publish(RX_TOPIC, json.dumps({"status": "vector_set", "vx": vx, "vy": vy}))
+            omega = float(cmd.get("w", cmd.get("omega", 0)))
+            ctrl.set_vector(vx, vy, omega)
+            client.publish(RX_TOPIC, json.dumps({"status": "vector_set", "vx": vx, "vy": vy, "w": omega}))
             return
     
     elif t == "config":
