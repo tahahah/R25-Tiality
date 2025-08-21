@@ -20,6 +20,14 @@ INPUT_PINS: List[int] = [2, 3, 4, 17, 6, 13, 5, 11]  # 8 pins -> 4 pairs
 PWM_FREQUENCY_HZ = 1000
 DEFAULT_RAMP_MS = 2000
 
+# Motor compensation factors for omnidirectional wheels
+# Adjust these values to make the robot move in a straight line
+# Values < 1.0 reduce motor speed, > 1.0 increase motor speed
+MOTOR_COMPENSATION = {
+    "forward": [1.0, 0.85, 1.0, 0.85],  # [motor1, motor2, motor3, motor4]
+    "reverse": [1.0, 0.85, 1.0, 0.85],  # Adjust these based on testing
+}
+
 MQTT_BROKER_HOST = "localhost"
 TX_TOPIC = "robot/tx"
 RX_TOPIC = "robot/rx"
@@ -100,9 +108,14 @@ class MotorController:
         GPIO.cleanup()
 
     def set_all(self, direction: str, speed: float):
-        for m in self.motors:
+        # Apply compensation factors for each motor based on direction
+        comp_factors = MOTOR_COMPENSATION.get(direction, [1.0, 1.0, 1.0, 1.0])
+        
+        for i, m in enumerate(self.motors):
             m.set_direction(direction)
-            m.set_duty(speed)
+            # Apply compensation factor to this specific motor
+            comp_speed = speed * comp_factors[i]
+            m.set_duty(comp_speed)
 
     def stop_all(self):
         for m in self.motors:
@@ -119,12 +132,20 @@ class MotorController:
             # Set direction at start
             for m in self.motors:
                 m.set_direction(direction)
+                
+            # Apply compensation factors for each motor based on direction
+            comp_factors = MOTOR_COMPENSATION.get(direction, [1.0, 1.0, 1.0, 1.0])
+            comp_targets = [target * factor for factor in comp_factors]
+            
             step_time = 0.02  # 50 Hz
             steps = max(1, int(ramp_ms / (step_time * 1000)))
-            for m in self.motors:
+            
+            # Calculate ramp for each motor with its compensation factor
+            for i, m in enumerate(self.motors):
                 start = m.get_duty()
-                delta = target - start
+                delta = comp_targets[i] - start
                 m._ramp = (start, delta)  # for debug
+                
             for i in range(1, steps + 1):
                 if self._spool_cancel.is_set():
                     return
@@ -144,6 +165,7 @@ def parse_command(payload: str):
       {"type":"all","action":"spool","direction":"forward","target":100,"ramp_ms":2000}
       {"type":"all","action":"stop"}
       {"type":"all","action":"set","direction":"reverse","speed":50}
+      {"type":"config","action":"set_compensation","direction":"forward","factors":[1.0, 0.8, 1.0, 0.8]}
     Fallback key names (non-JSON): 'up' -> forward spool, 'down' -> reverse spool, 'space' -> stop
     """
     payload = payload.strip()
@@ -186,6 +208,24 @@ def handle_command(ctrl: MotorController, cmd: dict, client: mqtt.Client):
             ctrl.set_all(direction, speed)
             client.publish(RX_TOPIC, json.dumps({"status": "set", "direction": direction, "speed": speed}))
             return
+    
+    elif t == "config":
+        if action == "set_compensation":
+            direction = cmd.get("direction")
+            factors = cmd.get("factors")
+            if direction and factors and isinstance(factors, list) and len(factors) == 4:
+                # Update the compensation factors
+                MOTOR_COMPENSATION[direction] = factors
+                logging.info(f"Updated compensation factors for {direction}: {factors}")
+                client.publish(RX_TOPIC, json.dumps({
+                    "status": "config_updated", 
+                    "compensation": MOTOR_COMPENSATION
+                }))
+                return
+            else:
+                logging.warning(f"Invalid compensation factors: {factors}")
+                client.publish(RX_TOPIC, json.dumps({"status": "error", "message": "Invalid compensation factors"}))
+                return
 
     # TODO: per-motor control if needed later
 

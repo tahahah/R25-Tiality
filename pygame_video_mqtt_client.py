@@ -22,6 +22,17 @@ GRPC_PORT = 50051
 MQTT_BROKER_HOST = "192.168.0.114"  # Pi now runs the MQTT broker (same as PI_IP_ADDRESS)
 TX_TOPIC = "robot/tx"
 
+# Client-side adjustable motor compensation (mirrors Pi defaults)
+# Used to send config updates to the Pi at runtime
+COMPENSATION = {
+    "forward": [1.0, 0.85, 1.0, 0.85],
+    "reverse": [1.0, 0.85, 1.0, 0.85],
+}
+COMP_DIR = "forward"   # which set we are editing: "forward" or "reverse"
+COMP_SELECTED = 0       # selected motor index [0..3]
+COMP_STEP = 0.05        # adjustment step per keypress
+COMP_MIN, COMP_MAX = 0.5, 1.5
+
 
 # ----------------------------- Functions ------------------------------
 
@@ -209,6 +220,48 @@ def handle_key_event(event: pygame.event.Event, mqtt_client: mqtt.Client):
         cmd = {"type": "all", "action": "spool", "direction": "reverse", "target": 100, "ramp_ms": 2000}
     elif key_name in ("space",):
         cmd = {"type": "all", "action": "stop"}
+
+    # --- Compensation editing shortcuts ---
+    # 1-4: select motor index
+    # f/r: choose which direction set to edit
+    # +/-: increase/decrease selected factor
+    # c:   send current factors for the active direction to the Pi
+    # z:   reset active direction factors to [1,1,1,1]
+    global COMP_SELECTED, COMP_DIR, COMPENSATION
+    if key_name in ("1", "2", "3", "4"):
+        COMP_SELECTED = int(key_name) - 1
+        logging.info("Selected motor index: %d", COMP_SELECTED)
+    elif key_name == "f":
+        COMP_DIR = "forward"
+        logging.info("Editing compensation set: forward -> %s", COMPENSATION[COMP_DIR])
+    elif key_name == "r":
+        COMP_DIR = "reverse"
+        logging.info("Editing compensation set: reverse -> %s", COMPENSATION[COMP_DIR])
+    elif key_name in ("+", "="):
+        vals = COMPENSATION[COMP_DIR]
+        vals[COMP_SELECTED] = max(COMP_MIN, min(COMP_MAX, vals[COMP_SELECTED] + COMP_STEP))
+        logging.info("Compensation %s[%d] increased -> %.2f", COMP_DIR, COMP_SELECTED, vals[COMP_SELECTED])
+    elif key_name in ("-", "_"):
+        vals = COMPENSATION[COMP_DIR]
+        vals[COMP_SELECTED] = max(COMP_MIN, min(COMP_MAX, vals[COMP_SELECTED] - COMP_STEP))
+        logging.info("Compensation %s[%d] decreased -> %.2f", COMP_DIR, COMP_SELECTED, vals[COMP_SELECTED])
+    elif key_name == "z":
+        COMPENSATION[COMP_DIR] = [1.0, 1.0, 1.0, 1.0]
+        logging.info("Compensation %s reset -> %s", COMP_DIR, COMPENSATION[COMP_DIR])
+    elif key_name == "c":
+        # Send the updated factors for the current direction
+        try:
+            payload_bytes = json.dumps({
+                "type": "config",
+                "action": "set_compensation",
+                "direction": COMP_DIR,
+                "factors": COMPENSATION[COMP_DIR],
+            }).encode()
+            mqtt_client.publish(TX_TOPIC, payload=payload_bytes, qos=0)
+            logging.info("Sent compensation update for %s: %s", COMP_DIR, COMPENSATION[COMP_DIR])
+        except Exception as exc:
+            logging.error("Failed to publish compensation update: %s", exc)
+        return
 
     payload_bytes: bytes
     if cmd is not None:
