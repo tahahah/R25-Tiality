@@ -1,0 +1,76 @@
+import pygame
+import queue
+import threading
+import io
+import time
+import tiality_server
+
+def run_pygame_display(server_manager: tiality_server.TialityServerManager):
+    """
+    Main function to run the Pygame display loop.
+    This function is intended to be called from a main script.
+    It takes a thread-safe queue as an argument and displays frames from it.
+    """
+    # 1. Initialize Pygame and set up the display.
+    pygame.init()
+    screen_width, screen_height = 640, 480
+    screen = pygame.display.set_mode((screen_width, screen_height))
+    pygame.display.set_caption("Robot Video Feed")
+    font = pygame.font.Font(None, 50)
+    clock = pygame.time.Clock()
+
+    # 2. Main Pygame display loop.
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+
+        # --- Frame Display Logic ---
+        # Try to get the latest frame from the queue without blocking.
+        frame_bytes = server_manager.get_video_frame()
+        if frame_bytes is not None:
+            print(frame_bytes)
+            
+            try:
+                # Convert the JPEG bytes into a Pygame surface.
+                byte_io = io.BytesIO(frame_bytes)
+                #print(byte_io)
+                frame_surface = pygame.image.load(byte_io)
+                
+                # Resize and draw the frame.
+                frame_rect = frame_surface.get_rect()
+                fit_rect = frame_rect.fit(screen.get_rect())
+                screen.fill((0, 0, 0)) # Black background
+                screen.blit(pygame.transform.scale(frame_surface, fit_rect.size), fit_rect)
+            except pygame.error as e:
+                print(f"Pygame Error: {e}")
+
+
+        pygame.display.flip()
+        clock.tick(60)
+
+    pygame.quit()
+    print("Pygame window closed.")
+
+
+# --- Example Usage ---
+# The following code demonstrates how you would use the run_pygame_display function
+# in your main application alongside the gRPC server.
+
+
+if __name__ == '__main__':
+    # This is how you would structure your main application script.
+    
+    # 1. Create the shared queue.
+    shared_frame_queue = queue.Queue(maxsize=1)
+
+    # 2. Create and start the gRPC server thread.
+    #    (Here we use the placeholder for demonstration).
+    manger = tiality_server.TialityServerManager("localhost", "8000", "8001")
+    manger.start_servers()
+    # 3. Run the Pygame display on the main thread.
+    #    It will now get its frames from the queue populated by the server thread.
+    run_pygame_display(manger)
+
+    print("Application shutting down.")
