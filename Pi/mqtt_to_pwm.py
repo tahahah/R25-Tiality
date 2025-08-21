@@ -117,6 +117,44 @@ class MotorController:
             comp_speed = speed * comp_factors[i]
             m.set_duty(comp_speed)
 
+    def set_vector(self, vx: float, vy: float):
+        """Crab-walk (lateral + forward) vector control for mecanum/omni wheels.
+        Inputs are percentages in range [-100..100]. Positive vy = forward, positive vx = right.
+
+        Assumed motor index mapping:
+          0: front-left, 1: front-right, 2: rear-left, 3: rear-right
+
+        Mixing (no rotation):
+          FL = vy + vx
+          FR = vy - vx
+          RL = vy - vx
+          RR = vy + vx
+        """
+        # Clamp inputs
+        vx = max(-100.0, min(100.0, float(vx)))
+        vy = max(-100.0, min(100.0, float(vy)))
+
+        # Compute mixed wheel commands
+        w = [
+            vy + vx,  # FL
+            vy - vx,  # FR
+            vy - vx,  # RL
+            vy + vx,  # RR
+        ]
+
+        # Normalize if any exceeds magnitude 100
+        max_mag = max(abs(val) for val in w) or 1.0
+        if max_mag > 100.0:
+            scale = 100.0 / max_mag
+            w = [val * scale for val in w]
+
+        # Apply per-wheel direction and compensation
+        for i, (m, cmd) in enumerate(zip(self.motors, w)):
+            direction = "forward" if cmd >= 0 else "reverse"
+            comp = MOTOR_COMPENSATION.get(direction, [1.0, 1.0, 1.0, 1.0])[i]
+            m.set_direction(direction)
+            m.set_duty(abs(cmd) * comp)
+
     def stop_all(self):
         for m in self.motors:
             m.stop()
@@ -165,6 +203,7 @@ def parse_command(payload: str):
       {"type":"all","action":"spool","direction":"forward","target":100,"ramp_ms":2000}
       {"type":"all","action":"stop"}
       {"type":"all","action":"set","direction":"reverse","speed":50}
+      {"type":"vector","action":"set","vx":25,"vy":-40}
       {"type":"config","action":"set_compensation","direction":"forward","factors":[1.0, 0.8, 1.0, 0.8]}
     Fallback key names (non-JSON): 'up' -> forward spool, 'down' -> reverse spool, 'space' -> stop
     """
@@ -181,6 +220,10 @@ def parse_command(payload: str):
         return {"type": "all", "action": "spool", "direction": "forward", "target": 100, "ramp_ms": DEFAULT_RAMP_MS}
     if payload.lower() in ("down", "s", "x"):
         return {"type": "all", "action": "spool", "direction": "reverse", "target": 100, "ramp_ms": DEFAULT_RAMP_MS}
+    if payload.lower() in ("left", "a"):
+        return {"type": "vector", "action": "set", "vx": -50, "vy": 0}
+    if payload.lower() in ("right", "d"):
+        return {"type": "vector", "action": "set", "vx": 50, "vy": 0}
     if payload.lower() in ("space", "stop"):
         return {"type": "all", "action": "stop"}
     return None
@@ -207,6 +250,13 @@ def handle_command(ctrl: MotorController, cmd: dict, client: mqtt.Client):
             speed = float(cmd.get("speed", 0))
             ctrl.set_all(direction, speed)
             client.publish(RX_TOPIC, json.dumps({"status": "set", "direction": direction, "speed": speed}))
+            return
+    elif t == "vector":
+        if action == "set":
+            vx = float(cmd.get("vx", 0))
+            vy = float(cmd.get("vy", 0))
+            ctrl.set_vector(vx, vy)
+            client.publish(RX_TOPIC, json.dumps({"status": "vector_set", "vx": vx, "vy": vy}))
             return
     
     elif t == "config":

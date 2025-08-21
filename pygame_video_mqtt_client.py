@@ -33,6 +33,9 @@ COMP_SELECTED = 0       # selected motor index [0..3]
 COMP_STEP = 0.05        # adjustment step per keypress
 COMP_MIN, COMP_MAX = 0.5, 1.5
 
+# Joystick axis control config
+JOY_MAX_SPEED = 40  # percent of full speed when axis at full deflection
+
 
 # ----------------------------- Functions ------------------------------
 
@@ -98,7 +101,7 @@ def format_joystick_axes(joystick: "pygame.joystick.Joystick", deadzone: float =
 
 # ----------------------------- Main Loop ------------------------------
 
-def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: bool):
+def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: bool, x_axis: int, y_axis: int):
     mqtt_client = connect_mqtt(broker_host)
 
     pygame.init()
@@ -107,7 +110,8 @@ def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: 
     joystick = pygame.joystick.Joystick(0) if pygame.joystick.get_count() > 0 else None
     if joystick is not None:
         joystick.init()
-        logging.info("Joystick detected: %s", joystick.get_name())
+        axes = joystick.get_numaxes()
+        logging.info("Joystick detected: %s | axes=%d | using x_axis=%d, y_axis=%d", joystick.get_name(), axes, x_axis, y_axis)
     else:
         logging.warning("No joystick detected. Only keyboard MQTT events will be sent.")
 
@@ -120,6 +124,8 @@ def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: 
     last_payload: Optional[str] = None
     # Ramp time for spool commands (ms)
     SPOOL_RAMP_MS = 2000
+    # Debug: periodic axes dump
+    last_axes_log = 0.0
 
     try:
         if use_video:
@@ -162,16 +168,44 @@ def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: 
                         elif event.type == pygame.KEYDOWN:
                             handle_key_event(event, mqtt_client)
 
-                    # Read joystick axes and publish direction string to MQTT
+                    # Read joystick axes (X/Y) and publish vector crab-walk command
                     if joystick is not None:
-                        msg = format_joystick_axes(joystick, DEADZONE)
+                        try:
+                            x_input = joystick.get_axis(x_axis)
+                            y_input = joystick.get_axis(y_axis)
+                        except Exception as exc:
+                            logging.debug("Joystick axis read failed: %s", exc)
+                            x_input = 0.0
+                            y_input = 0.0
                         now = time.time()
-                        if msg and (now - last_send_time >= SEND_INTERVAL) and msg != last_payload:
+                        # Periodically dump all axes in debug to help mapping
+                        if logging.getLogger().isEnabledFor(logging.DEBUG) and now - last_axes_log >= 1.0:
                             try:
-                                mqtt_client.publish(TX_TOPIC, payload=msg.encode(), qos=0)
+                                axes_count = joystick.get_numaxes()
+                                all_axes = [f"{joystick.get_axis(i):.2f}" for i in range(axes_count)]
+                                logging.debug("All axes: [%s]", ", ".join(all_axes))
+                            except Exception:
+                                pass
+                            last_axes_log = now
+                        payload = None
+                        if (abs(x_input) > DEADZONE) or (abs(y_input) > DEADZONE):
+                            # Map to vector: vx right positive, vy forward positive (invert Y since up is negative)
+                            vx = int(max(-100, min(100, x_input * JOY_MAX_SPEED)))
+                            vy = int(max(-100, min(100, -y_input * JOY_MAX_SPEED)))
+                            logging.debug("Axes x=%.2f y=%.2f -> vector vx=%d vy=%d", x_input, y_input, vx, vy)
+                            payload = json.dumps({"type": "vector", "action": "set", "vx": vx, "vy": vy})
+                        else:
+                            # In deadzone: send a stop once when coming from active
+                            if last_payload and "\"action\": \"set\"" in last_payload:
+                                logging.debug("Axes in deadzone -> stop")
+                                payload = json.dumps({"type": "all", "action": "stop"})
+
+                        if payload and (now - last_send_time >= SEND_INTERVAL) and payload != last_payload:
+                            try:
+                                mqtt_client.publish(TX_TOPIC, payload=payload.encode(), qos=0)
                             except Exception as exc:
                                 logging.error("Failed to publish joystick MQTT message: %s", exc)
-                            last_payload = msg
+                            last_payload = payload
                             last_send_time = now
 
                     # Aim for ~30 Hz UI refresh independent of incoming frames
@@ -186,14 +220,40 @@ def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: 
                     handle_key_event(event, mqtt_client)
 
             if joystick is not None:
-                msg = format_joystick_axes(joystick, DEADZONE)
+                # Axes 0/1 -> vector crab-walk set (vx, vy)
+                try:
+                    x_input = joystick.get_axis(x_axis)
+                    y_input = joystick.get_axis(y_axis)
+                except Exception as exc:
+                    logging.debug("Joystick axis read failed: %s", exc)
+                    x_input = 0.0
+                    y_input = 0.0
                 now = time.time()
-                if msg and (now - last_send_time >= SEND_INTERVAL):
+                if logging.getLogger().isEnabledFor(logging.DEBUG) and now - last_axes_log >= 1.0:
                     try:
-                        mqtt_client.publish(TX_TOPIC, payload=msg.encode(), qos=0)
+                        axes_count = joystick.get_numaxes()
+                        all_axes = [f"{joystick.get_axis(i):.2f}" for i in range(axes_count)]
+                        logging.debug("All axes: [%s]", ", ".join(all_axes))
+                    except Exception:
+                        pass
+                    last_axes_log = now
+                payload = None
+                if (abs(x_input) > DEADZONE) or (abs(y_input) > DEADZONE):
+                    vx = int(max(-100, min(100, x_input * JOY_MAX_SPEED)))
+                    vy = int(max(-100, min(100, -y_input * JOY_MAX_SPEED)))
+                    logging.debug("Axes x=%.2f y=%.2f -> vector vx=%d vy=%d", x_input, y_input, vx, vy)
+                    payload = json.dumps({"type": "vector", "action": "set", "vx": vx, "vy": vy})
+                else:
+                    if last_payload and "\"action\": \"set\"" in last_payload:
+                        logging.debug("Axes in deadzone -> stop")
+                        payload = json.dumps({"type": "all", "action": "stop"})
+
+                if payload and (now - last_send_time >= SEND_INTERVAL) and payload != last_payload:
+                    try:
+                        mqtt_client.publish(TX_TOPIC, payload=payload.encode(), qos=0)
                     except Exception as exc:
                         logging.error("Failed to publish joystick MQTT message: %s", exc)
-                    last_payload = msg
+                    last_payload = payload
                     last_send_time = now
 
             clock.tick(60)
@@ -215,9 +275,9 @@ def handle_key_event(event: pygame.event.Event, mqtt_client: mqtt.Client):
     # Map certain keys to structured JSON commands for precise motor control
     cmd = None
     if key_name in ("up", "w"):
-        cmd = {"type": "all", "action": "spool", "direction": "forward", "target": 100, "ramp_ms": 2000}
+        cmd = {"type": "all", "action": "spool", "direction": "forward", "target": 20, "ramp_ms": 2000}
     elif key_name in ("down", "s", "x"):
-        cmd = {"type": "all", "action": "spool", "direction": "reverse", "target": 100, "ramp_ms": 2000}
+        cmd = {"type": "all", "action": "spool", "direction": "reverse", "target": 20, "ramp_ms": 2000}
     elif key_name in ("space",):
         cmd = {"type": "all", "action": "stop"}
 
@@ -286,6 +346,8 @@ def parse_args():
     parser.add_argument("--broker", default=MQTT_BROKER_HOST, help="MQTT broker host (Pi IP address)")
     parser.add_argument("--loglevel", default="info", choices=["debug", "info", "warning", "error", "critical"], help="Logging level")
     parser.add_argument("--no-video", action="store_true", help="Disable video; run joystick→MQTT only")
+    parser.add_argument("--x-axis", type=int, default=0, help="Joystick X axis index (strafe, right positive)")
+    parser.add_argument("--y-axis", type=int, default=1, help="Joystick Y axis index (forward, up positive)")
     return parser.parse_args()
 
 
@@ -295,7 +357,7 @@ def main():
     logging.basicConfig(level=log_level, format="%(asctime)s - %(levelname)s - %(message)s")
 
     use_video = not args.no_video
-    stream_and_display(args.pi_ip, args.grpc_port, args.broker, use_video)
+    stream_and_display(args.pi_ip, args.grpc_port, args.broker, use_video, args.x_axis, args.y_axis)
 
 
 if __name__ == "__main__":
