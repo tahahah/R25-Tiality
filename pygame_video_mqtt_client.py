@@ -34,7 +34,8 @@ COMP_STEP = 0.05        # adjustment step per keypress
 COMP_MIN, COMP_MAX = 0.5, 1.5
 
 # Joystick axis control config
-JOY_MAX_SPEED = 40  # percent of full speed when axis at full deflection
+JOY_MAX_SPEED = 40  # percent of full speed when axis at full deflection (strafe/forward)
+JOY_MAX_ROT = 40    # percent of full rotational speed when axis at full deflection
 
 
 # ----------------------------- Functions ------------------------------
@@ -101,7 +102,7 @@ def format_joystick_axes(joystick: "pygame.joystick.Joystick", deadzone: float =
 
 # ----------------------------- Main Loop ------------------------------
 
-def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: bool, x_axis: int, y_axis: int):
+def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: bool, x_axis: int, y_axis: int, rot_axis: int):
     mqtt_client = connect_mqtt(broker_host)
 
     pygame.init()
@@ -111,7 +112,10 @@ def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: 
     if joystick is not None:
         joystick.init()
         axes = joystick.get_numaxes()
-        logging.info("Joystick detected: %s | axes=%d | using x_axis=%d, y_axis=%d", joystick.get_name(), axes, x_axis, y_axis)
+        logging.info(
+            "Joystick detected: %s | axes=%d | using x_axis=%d, y_axis=%d, rot_axis=%d",
+            joystick.get_name(), axes, x_axis, y_axis, rot_axis,
+        )
     else:
         logging.warning("No joystick detected. Only keyboard MQTT events will be sent.")
 
@@ -173,10 +177,12 @@ def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: 
                         try:
                             x_input = joystick.get_axis(x_axis)
                             y_input = joystick.get_axis(y_axis)
+                            rot_input = joystick.get_axis(rot_axis)
                         except Exception as exc:
                             logging.debug("Joystick axis read failed: %s", exc)
                             x_input = 0.0
                             y_input = 0.0
+                            rot_input = 0.0
                         now = time.time()
                         # Periodically dump all axes in debug to help mapping
                         if logging.getLogger().isEnabledFor(logging.DEBUG) and now - last_axes_log >= 1.0:
@@ -188,12 +194,13 @@ def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: 
                                 pass
                             last_axes_log = now
                         payload = None
-                        if (abs(x_input) > DEADZONE) or (abs(y_input) > DEADZONE):
+                        if (abs(x_input) > DEADZONE) or (abs(y_input) > DEADZONE) or (abs(rot_input) > DEADZONE):
                             # Map to vector: vx right positive, vy forward positive (invert Y since up is negative)
                             vx = int(max(-100, min(100, x_input * JOY_MAX_SPEED)))
                             vy = int(max(-100, min(100, -y_input * JOY_MAX_SPEED)))
-                            logging.debug("Axes x=%.2f y=%.2f -> vector vx=%d vy=%d", x_input, y_input, vx, vy)
-                            payload = json.dumps({"type": "vector", "action": "set", "vx": vx, "vy": vy})
+                            w = int(max(-100, min(100, rot_input * JOY_MAX_ROT)))
+                            logging.debug("Axes x=%.2f y=%.2f r=%.2f -> vector vx=%d vy=%d w=%d", x_input, y_input, rot_input, vx, vy, w)
+                            payload = json.dumps({"type": "vector", "action": "set", "vx": vx, "vy": vy, "w": w})
                         else:
                             # In deadzone: send a stop once when coming from active
                             if last_payload and "\"action\": \"set\"" in last_payload:
@@ -224,10 +231,12 @@ def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: 
                 try:
                     x_input = joystick.get_axis(x_axis)
                     y_input = joystick.get_axis(y_axis)
+                    rot_input = joystick.get_axis(rot_axis)
                 except Exception as exc:
                     logging.debug("Joystick axis read failed: %s", exc)
                     x_input = 0.0
                     y_input = 0.0
+                    rot_input = 0.0
                 now = time.time()
                 if logging.getLogger().isEnabledFor(logging.DEBUG) and now - last_axes_log >= 1.0:
                     try:
@@ -238,11 +247,12 @@ def stream_and_display(pi_ip: str, grpc_port: int, broker_host: str, use_video: 
                         pass
                     last_axes_log = now
                 payload = None
-                if (abs(x_input) > DEADZONE) or (abs(y_input) > DEADZONE):
+                if (abs(x_input) > DEADZONE) or (abs(y_input) > DEADZONE) or (abs(rot_input) > DEADZONE):
                     vx = int(max(-100, min(100, x_input * JOY_MAX_SPEED)))
                     vy = int(max(-100, min(100, -y_input * JOY_MAX_SPEED)))
-                    logging.debug("Axes x=%.2f y=%.2f -> vector vx=%d vy=%d", x_input, y_input, vx, vy)
-                    payload = json.dumps({"type": "vector", "action": "set", "vx": vx, "vy": vy})
+                    w = int(max(-100, min(100, rot_input * JOY_MAX_ROT)))
+                    logging.debug("Axes x=%.2f y=%.2f r=%.2f -> vector vx=%d vy=%d w=%d", x_input, y_input, rot_input, vx, vy, w)
+                    payload = json.dumps({"type": "vector", "action": "set", "vx": vx, "vy": vy, "w": w})
                 else:
                     if last_payload and "\"action\": \"set\"" in last_payload:
                         logging.debug("Axes in deadzone -> stop")
@@ -348,6 +358,7 @@ def parse_args():
     parser.add_argument("--no-video", action="store_true", help="Disable video; run joystick→MQTT only")
     parser.add_argument("--x-axis", type=int, default=0, help="Joystick X axis index (strafe, right positive)")
     parser.add_argument("--y-axis", type=int, default=1, help="Joystick Y axis index (forward, up positive)")
+    parser.add_argument("--rot-axis", type=int, default=2, help="Joystick rotation axis index (clockwise positive)")
     return parser.parse_args()
 
 
@@ -357,7 +368,7 @@ def main():
     logging.basicConfig(level=log_level, format="%(asctime)s - %(levelname)s - %(message)s")
 
     use_video = not args.no_video
-    stream_and_display(args.pi_ip, args.grpc_port, args.broker, use_video, args.x_axis, args.y_axis)
+    stream_and_display(args.pi_ip, args.grpc_port, args.broker, use_video, args.x_axis, args.y_axis, args.rot_axis)
 
 
 if __name__ == "__main__":
