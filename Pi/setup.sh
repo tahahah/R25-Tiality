@@ -39,6 +39,13 @@ if ! command -v mosquitto &> /dev/null; then
     sudo apt install -y mosquitto mosquitto-clients
 fi
 
+echo "--- Ensuring Pi 5 GPIO backend is installed (python3-lgpio) ---"
+if ! dpkg -s python3-lgpio >/dev/null 2>&1; then
+    echo "Installing python3-lgpio (RPi.GPIO-compatible backend on Pi 5)..."
+    sudo apt update
+    sudo apt install -y python3-lgpio
+fi
+
 # Ensure Mosquitto is enabled but not started as a service (we'll run it manually)
 sudo systemctl stop mosquitto 2>/dev/null || true
 sudo systemctl disable mosquitto 2>/dev/null || true
@@ -63,7 +70,10 @@ echo "Mosquitto broker started with PID $MOSQUITTO_PID."
 
 # Start gRPC video server in the background
 echo "Starting gRPC video server..."
-python3 "$SCRIPT_DIR/video_server.py" &
+# Allow selecting camera device via env var (default to 0)
+# Example: VIDEO_DEVICE=/dev/video1 ./setup.sh
+VIDEO_DEVICE_ARG="--device ${VIDEO_DEVICE:-0}"
+python3 "$SCRIPT_DIR/video_server.py" $VIDEO_DEVICE_ARG &
 VIDEO_PID=$!
 echo "Video server started with PID $VIDEO_PID."
 
