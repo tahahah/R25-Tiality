@@ -79,7 +79,7 @@ echo "Video server started with PID $VIDEO_PID."
 
 # Start MQTT->PWM controller in the foreground (it will block here)
 echo "Starting MQTT->PWM controller... (Press Ctrl+C to stop all)"
-python3 "$SCRIPT_DIR/mqtt_to_pwm.py" --broker "localhost"
+sudo "$SCRIPT_DIR/../.venv/bin/python3" "$SCRIPT_DIR/mqtt_to_pwm.py" --broker "localhost"
 
 # The script will only reach here if the mqtt bridge exits without Ctrl+C
 wait $VIDEO_PID
