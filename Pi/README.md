@@ -20,7 +20,7 @@ Running both at the same time lets you tele-operate the robot while viewing a li
 
 ### Install requirements
 ```bash
-pip install -r app/requirements.txt   # includes paho-mqtt, pyserial
+pip install -r Pi/requirements.txt   # includes paho-mqtt, pyserial, grpc, OpenCV, GPIO shim
 ```
 
 ### Run on the Pi
@@ -58,7 +58,7 @@ All dependencies for both MQTT and gRPC services are already listed in `app/requ
 
 ### Run on the Pi
 ```bash
-python3 app/video_server.py   # listens on :50051
+python3 Pi/video_server.py   # listens on :50051
 ```
 
 ### Run on the laptop
@@ -88,3 +88,24 @@ Using both protocols in parallel gives the robot the **robustness** of MQTT for 
 | `Could not open camera /dev/video0` | Ensure user is in `video` group or run with sudo; verify with `v4l2-ctl --list-devices` |
 | MQTT timeout | Ensure Mosquitto is running on Pi: `pgrep mosquitto`. Check firewall if connecting from other devices. |
 | gRPC timeout | Ensure `video_server.py` is running and port 50051 reachable |
+
+---
+
+## Raspberry Pi 5 GPIO notes
+
+On Raspberry Pi 5, the legacy `RPi.GPIO` stack is not provided by default. This repo uses the drop-in compatible shim `rpi-lgpio` backed by `libgpiod`.
+
+Install once on the Pi 5:
+
+```bash
+sudo apt update && sudo apt install -y python3-lgpio
+pip install rpi-lgpio
+```
+
+Then run the motor PWM script as usual:
+
+```bash
+python3 Pi/mqtt_to_pwm.py --broker localhost
+```
+
+If you see `ImportError: RPi.GPIO module not found`, follow the installation steps above.

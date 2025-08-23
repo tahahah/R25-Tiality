@@ -3,4 +3,4 @@ pyserial
 grpcio
 opencv-python-headless
 protobuf
-RPi.GPIO
+rpi-lgpio

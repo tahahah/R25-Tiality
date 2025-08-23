@@ -9,6 +9,17 @@ from typing import List, Tuple, Optional
 import paho.mqtt.client as mqtt
 try:
     import RPi.GPIO as GPIO
+except ImportError as e:
+    # On Raspberry Pi 5, the legacy RPi.GPIO is not available by default.
+    # Install the lgpio backend and the drop-in shim:
+    #   sudo apt update && sudo apt install -y python3-lgpio
+    #   pip install rpi-lgpio
+    raise ImportError(
+        "RPi.GPIO module not found. On Raspberry Pi 5, install the lgpio backend and shim:\n"
+        "  sudo apt update && sudo apt install -y python3-lgpio\n"
+        "  pip install rpi-lgpio\n"
+        "This provides a drop-in RPi.GPIO-compatible API backed by libgpiod."
+    ) from e
 except RuntimeError:
     # Allow import-time failure messaging when run off-Pi
     raise
