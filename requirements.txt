@@ -1,6 +1,6 @@
 opencv-python
-grpcio
 numpy
 pygame
 paho-mqtt
-protobuf
+aiortc
+av

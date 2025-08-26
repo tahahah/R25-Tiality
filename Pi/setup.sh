@@ -14,7 +14,7 @@ cleanup() {
     echo "\nShutting down services..."
     if [ -n "$VIDEO_PID" ]; then
         kill $VIDEO_PID
-        echo "Video server (PID: $VIDEO_PID) stopped."
+        echo "WebRTC video server (PID: $VIDEO_PID) stopped."
     fi
     if [ -n "$MOSQUITTO_PID" ]; then
         kill $MOSQUITTO_PID
@@ -31,24 +31,47 @@ trap cleanup SIGINT SIGTERM
 echo "--- Pulling latest changes ---"
 git pull
 
-echo "--- Installing and configuring MQTT broker ---"
+echo "--- Installing system packages ---"
+# Update system first
+sudo apt update
+
 # Install Mosquitto if not already installed
 if ! command -v mosquitto &> /dev/null; then
     echo "Installing Mosquitto MQTT broker..."
-    sudo apt update
     sudo apt install -y mosquitto mosquitto-clients
 fi
+
+# Install required system packages
+echo "Installing required system packages..."
+sudo apt install -y python3-picamera2 python3-opencv python3-numpy --no-install-recommends
 
 # Ensure Mosquitto is enabled but not started as a service (we'll run it manually)
 sudo systemctl stop mosquitto 2>/dev/null || true
 sudo systemctl disable mosquitto 2>/dev/null || true
 
 echo "--- Setting up Python environment ---"
-if [ ! -d "$SCRIPT_DIR/../.venv" ]; then
-    python3 -m venv "$SCRIPT_DIR/../.venv"
+# Remove existing venv to ensure --system-site-packages takes effect
+if [ -d "$SCRIPT_DIR/../.venv" ]; then
+    echo "Removing existing virtual environment to recreate with system packages..."
+    rm -rf "$SCRIPT_DIR/../.venv"
 fi
+
+# Create new venv with system site packages
+python3 -m venv "$SCRIPT_DIR/../.venv" --system-site-packages
 source "$SCRIPT_DIR/../.venv/bin/activate"
-pip install -r "$SCRIPT_DIR/requirements.txt"
+
+# Use system numpy and opencv to avoid conflicts with picamera2
+echo "Using system numpy and opencv for picamera2 compatibility..."
+
+# Verify picamera2 is accessible
+if python3 -c "import picamera2" 2>/dev/null; then
+    echo "picamera2 successfully accessible in virtual environment"
+else
+    echo "WARNING: picamera2 not accessible in virtual environment"
+fi
+
+# Install only the packages we need, avoiding opencv and numpy conflicts
+pip install paho-mqtt pyserial RPi.GPIO aiortc av
 
 echo "--- Starting services ---"
 
@@ -61,11 +84,11 @@ mosquitto -c /tmp/mosquitto.conf -d
 MOSQUITTO_PID=$(pgrep mosquitto)
 echo "Mosquitto broker started with PID $MOSQUITTO_PID."
 
-# Start gRPC video server in the background
-echo "Starting gRPC video server..."
-python3 "$SCRIPT_DIR/video_server.py" &
+# Start WebRTC video server in the background
+echo "Starting WebRTC video server..."
+python3 "$SCRIPT_DIR/webrtc_server.py" &
 VIDEO_PID=$!
-echo "Video server started with PID $VIDEO_PID."
+echo "WebRTC video server started with PID $VIDEO_PID."
 
 # Start MQTT->PWM controller in the foreground (it will block here)
 echo "Starting MQTT->PWM controller... (Press Ctrl+C to stop all)"
