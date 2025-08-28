@@ -64,6 +64,10 @@ echo "Starting local Mosquitto MQTT broker with external access..."
 # Create a temporary config file
 echo "listener 1883 0.0.0.0" > /tmp/mosquitto.conf
 echo "allow_anonymous true" >> /tmp/mosquitto.conf
+echo "" >> /tmp/mosquitto.conf
+echo "# WebSockets listener for React Native client" >> /tmp/mosquitto.conf
+echo "listener 9001 0.0.0.0" >> /tmp/mosquitto.conf
+echo "protocol websockets" >> /tmp/mosquitto.conf
 mosquitto -c /tmp/mosquitto.conf -d
 MOSQUITTO_PID=$(pgrep mosquitto)
 echo "Mosquitto broker started with PID $MOSQUITTO_PID."
