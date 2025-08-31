@@ -34,3 +34,5 @@ def run_grpc_client(server_address, frame_queue, frame_generator_func):
 
         # Wait before the next connection attempt.
         time.sleep(5)
+
+    

@@ -32,20 +32,24 @@ class VideoStreamingServicer(video_streaming_pb2_grpc.VideoStreamingServicer):
         try:
             # Iterate over the incoming stream of video frames from the client.
             for video_frame in request_iterator:
-                # This is the raw byte data of the frame.
-                frame_data = video_frame.frame_data
-                
-                # Use a "dumping" pattern on the queue to ensure it only holds
-                # the single most recent frame.
-                try:
-                    # Clear any old frame that the GUI hasn't processed yet.
-                    self.video_frame_queue.get_nowait()
-                except queue.Empty:
-                    # The queue was already empty, which is fine.
-                    pass
-                
-                # Put the new, most recent frame into the queue.
-                self.video_frame_queue.put_nowait(frame_data)
+                if not self.shutdown_event.is_set():
+                    # This is the raw byte data of the frame.
+                    frame_data = video_frame.frame_data
+
+                    # Use a "dumping" pattern on the queue to ensure it only holds
+                    # the single most recent frame.
+                    try:
+                        # Clear any old frame that the GUI hasn't processed yet.
+                        self.video_frame_queue.get_nowait()
+                    except queue.Empty:
+                        # The queue was already empty, which is fine.
+                        pass
+                    
+                    # Put the new, most recent frame into the queue.
+                    self.video_frame_queue.put_nowait(frame_data)
+
+                else:
+                    break
 
         except grpc.RpcError as e:
             # This exception is commonly raised when the client disconnects abruptly.
@@ -60,23 +64,23 @@ class VideoStreamingServicer(video_streaming_pb2_grpc.VideoStreamingServicer):
         return video_streaming_pb2.StreamResponse(status_message="Stream ended.")
 
 
-def serve(video_queue, connection_established_event, shutdown_event):
+def serve(grpc_port, video_queue, connection_established_event, shutdown_event):
     """
     Starts the gRPC server and keeps it running.
     This function is designed to run forever and handle reconnections automatically.
     """
     # Create a gRPC server instance. We use a ThreadPoolExecutor to handle
     # incoming requests concurrently.
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=6))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     video_streaming_pb2_grpc.add_VideoStreamingServicer_to_server(
         VideoStreamingServicer(video_queue, connection_established_event, shutdown_event), server
     )
     
     # The server listens on all available network interfaces on port 50051.
-    # Using '[::]:50051' makes it listen on both IPv4 and IPv6.
-    server.add_insecure_port('[::]:50051')
+    # Using f'[::]:{str(grpc_port)}' makes it listen on both IPv4 and IPv6.
+    server.add_insecure_port(f'[::]:{str(grpc_port)}')
     
-    print("gRPC server starting on port 50051...")
+    print(f"gRPC server starting on port {grpc_port}...")
     server.start()
     print("Server started. Waiting for connections...")
     
@@ -84,10 +88,15 @@ def serve(video_queue, connection_established_event, shutdown_event):
         # The server will run indefinitely. The main thread will sleep here,
         # while the server's worker threads handle connections.
         # This is the core of handling reconnections: the server never stops.
-        while True:
-            time.sleep(86400) # Sleep for one day at a time.
+        while not shutdown_event.is_set():
+            
+            time.sleep(5) # Sleep for one day at a time.
     except KeyboardInterrupt:
         # This allows you to stop the server cleanly with Ctrl+C.
         print("Server stopping...")
         server.stop(0)
         print("Server stopped.")
+
+    finally:
+        print(f"Shutdown: {shutdown_event.is_set()}")
+        print("Video Producer thread manager completely shutdown")

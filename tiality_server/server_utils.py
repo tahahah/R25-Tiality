@@ -1,87 +1,81 @@
 import socket
 import threading
 import queue
-from .video_streaming import server
+from .video_streaming import server as video_server
+from .video_streaming import decoder_worker
+from .command_streaming import publisher as command_publisher
 
-def process_incoming_frame(encoded_frame):
-    return encoded_frame.decode()
-
-def _video_producer_worker(video_conn, video_queue, shutdown_event):
-    
-    with video_conn:
-        video_conn.settimeout(1.0)
-    
-        # Maintain socket communication until a shutdown event is called
-        while not shutdown_event.is_set():
-            try:            
-                # Wait for incoming data
-                data = video_conn.recv(1024)
-
-                # Decode incoming data into a frame
-                decoded_frame = process_incoming_frame(data)
-                if not data:
-                    break
-                # Clear queue if not empty
-                try:
-                    video_queue.get_nowait()
-                except queue.Empty:
-                    pass
-
-                # Add decoded frame to video queue
-                video_queue.put_nowait(decoded_frame)
-            except socket.timeout:
-                continue
-
-
-def _command_sender_worker(command_conn, command_queue, shutdown_event):
-    with command_conn:
-        command_conn.settimeout(1.0)
-    
-        # Maintain socket communication until a shutdown event is called
-        while not shutdown_event.is_set():
-            try:            
-                # Attempt to retrieve new command
-                command = command_queue.get_nowait()
-
-                # Send command when available
-                command_conn.sendall(command.encode())
-            except queue.Empty:
-                # No command in queue
-                continue
-            except socket.timeout:
-                continue
-
-def _connection_manager_worker(video_queue, command_queue, connection_established_event, shutdown_event):
+def _connection_manager_worker(grpc_port, incoming_video_queue, decoded_video_queue, mqtt_broker_host_ip, mqtt_port, tx_topic, rx_topic, command_queue, connection_established_event, shutdown_event, decode_video_func, num_decode_video_workers):
 
     video_producer_thread = None
+    video_decoder_threads = [None for _ in range(num_decode_video_workers)]
     command_sender_thread = None
 
     try:
         while not shutdown_event.is_set():
-            print("Waiting for Connection")
             try:
+                if type(video_producer_thread) == type(None) or not video_producer_thread.is_alive():
+                    print("Waiting for Video Connection")
+                    # Create the video worker for this connection
+                    video_producer_thread = threading.Thread(
+                        target=video_server.serve, 
+                        args=(
+                            grpc_port, 
+                            incoming_video_queue,  
+                            connection_established_event,
+                            shutdown_event
+                            ))
+                    video_producer_thread.start()
 
-                # Create the video worker for this connection
-                video_producer_thread = threading.Thread(target=server.serve, args=(video_queue, shutdown_event, connection_established_event))
-                video_producer_thread.start()
+                if None in video_decoder_threads:
+                    for thread_id in range(num_decode_video_workers):
+                        if type(video_decoder_threads[thread_id]) == type(None) or not video_decoder_threads[thread_id].is_alive():
+                            video_decoder_threads[thread_id] = threading.Thread(
+                                target=decoder_worker.start_decoder_worker,
+                                args=(
+                                    incoming_video_queue,
+                                    decoded_video_queue,
+                                    decode_video_func,
+                                    shutdown_event
+                                )
+                            )
+                            video_decoder_threads[thread_id].start()
 
-                # Create the command worker for this connection
-                command_sender_thread = threading.Thread(target=_command_sender_worker, args=(command_conn, command_queue, shutdown_event))
-                connection_established_event.set()
-                command_sender_thread.start()
+                # Close command thread and socket
+                if type(command_sender_thread) == type(None) or not command_sender_thread.is_alive():
+                    print("Waiting for Command Sending Connection")
+                    # Create the command worker for this connection
+                    command_sender_thread = threading.Thread(
+                        target=command_publisher.publish_commands_worker, 
+                        args=(
+                            mqtt_port, 
+                            mqtt_broker_host_ip, 
+                            command_queue, 
+                            tx_topic, 
+                            shutdown_event
+                            ))
+                    command_sender_thread.start()
+                    connection_established_event.set()
 
-            finally:
-                connection_established_event.clear()
+            except Exception as e:
+                print(f"Exception Encountered: {e}")
     finally:
+        print("Ensuring Threads successfully shutdown")
+
         # Close video thread and socket
         if video_producer_thread is not None and video_producer_thread.is_alive():
             video_producer_thread.join()
 
+        # Close video thread and socket
+        for video_decoder_thread in video_decoder_threads:
+            if video_decoder_thread is not None and video_decoder_thread.is_alive():
+                video_decoder_thread.join()
+
         # Close command thread and socket
         if command_sender_thread is not None and command_sender_thread.is_alive():
             command_sender_thread.join()
-        command_socket.close()
 
+        print("Connections shut down")
 
 
     

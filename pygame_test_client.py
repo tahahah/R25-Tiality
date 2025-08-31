@@ -6,9 +6,28 @@ import io
 import queue
 import grpc
 import time
+import json
 from OpenGL.GL import *
 from OpenGL.GLU import *
 import tiality_server
+import time
+
+def message_decoder(encoded_str) -> dict:
+    """
+    Decoder function for on_message handler
+
+    Args:
+        encoded_str (str): encoded string from mqtt broker
+
+    Returns:
+        dict: command as dictionary
+    """
+    try:
+        decoded_json = encoded_str.decode(encoding="utf-8")
+        decoded_dict = json.loads(decoded_json)
+        return decoded_dict
+    except Exception as e:
+        print(f"Cant decode: {e}")
 
 def frame_generator_pygame(frame_queue: queue.Queue):
     """
@@ -19,7 +38,6 @@ def frame_generator_pygame(frame_queue: queue.Queue):
     while True:
         # Block until a frame is available in the queue.
         frame_surface = frame_queue.get()
-        print(frame_surface)
         
         # If a sentinel value (e.g., None) is received, stop the generator.
         if frame_surface is None:
@@ -31,27 +49,10 @@ def frame_generator_pygame(frame_queue: queue.Queue):
             # Use an in-memory binary stream to hold the JPEG data.
             byte_io = io.BytesIO()
             pygame.image.save(frame_surface, byte_io, 'jpeg')
-            print(byte_io)
+            
             # Get the byte value from the stream.
             frame_bytes = byte_io.getvalue()
             # ---------------------
-            print(frame_bytes)
-
-            # BYTES Convert to test--------
-            # Convert the JPEG bytes into a Pygame surface.
-            byte_io2 = io.BytesIO(frame_bytes)
-            #print(byte_io)
-            frame_surface2 = pygame.image.load(byte_io2)
-            print(frame_surface2)
-            try:
-                with open("debug_frame_client.jpg", "wb") as f:
-                    f.write(frame_bytes)
-                print("Saved problematic frame to debug_frame.jpg")
-            except Exception as save_e:
-                print(f"Could not save debug frame: {save_e}")
-
-            #--------------- REMOVE
-
 
             # Yield the frame data in the format expected by the .proto file.
             yield tiality_server.video_streaming_pb2.VideoFrame(frame_data=frame_bytes)
@@ -222,19 +223,66 @@ class Vehicle:
         
         glPopMatrix() # Restore the matrix state
 
+def get_queued_commands(prev_command_dict: dict, command_queue: queue.Queue) -> dict:
+    """
+    Get queued commands from GUI
+
+    Args:
+        default_dict (dict): dictionary of default keys
+
+    Returns:
+        dict: 
+    """
+    try:
+        command = command_queue.get_nowait()
+        return command
+    except queue.Empty:
+        return prev_command_dict.copy()
+
+
+
+
 # --- Main Function ---
 def main():
     
-    # --- Setup thread safe queues, vars  and start gRPC client---
+    # Setup threadsafe queue and setup command subscriber
+    commands_queue = queue.Queue(maxsize = 1)
+    broker_ip = "localhost"
+    broker_port = 1883
+    topic = "robot/tx"
+    connection_established_event = threading.Event()
+    command_subscriber_client = tiality_server.subscriber.setup_command_subscriber(
+        mqtt_port = broker_port,
+        broker_host_ip = broker_ip,
+        command_queue = commands_queue,
+        tx_topic = topic,
+        connection_established_event = connection_established_event,
+        message_decode_func = message_decoder
+        )
+
+    
+
+    # Setup thread safe queues, vars  and start gRPC client---
     frame_queue = queue.Queue(maxsize = 1)
     server_addr = 'localhost:50051'
-    client_thread = threading.Thread(
+    video_thread = threading.Thread(
         target=tiality_server.client.run_grpc_client, 
         args=(server_addr, frame_queue, frame_generator_pygame),
         daemon=True  # A daemon thread will exit when the main program exits.
     )
-    client_thread.start()
+    video_thread.start()
     
+    # Commands Initialisation
+    default_keys = {}
+    default_keys["up"] = False
+    default_keys["down"] = False
+    default_keys["rotate_left"] = False
+    default_keys["rotate_right"] = False
+    default_keys["left"] = False
+    default_keys["right"] = False
+    keys = default_keys.copy()
+
+
     # --- Pygame Initialization ---
     pygame.init()
     display = (640, 480)
@@ -263,73 +311,85 @@ def main():
     # --- Game Object Creation ---
     player = Vehicle(0, 0, 0)
     clock = pygame.time.Clock()
+    frames_generated = 0
 
     # --- Main Game Loop ---
-    while True:
-        # --- Event Handling ---
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                quit()
+    try:
+        while True:
+            # --- Event Handling ---
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    quit()
 
-        # --- Update ---
-        player.update()
+            keys = get_queued_commands(keys, commands_queue)
 
-        # --- Drawing ---
-        # Reset the modelview matrix for this frame. This is crucial.
-        glLoadIdentity()
-        
-        # --- Camera Setup ---
-        # The camera should be positioned behind the player.
-        # camera_pos = player_pos - (forward_vector * distance)
-        # This translates to:
-        cam_x = player.position[0] - 10 * (-math.sin(math.radians(player.angle)))
-        cam_z = player.position[2] - 10 * (-math.cos(math.radians(player.angle)))
-        gluLookAt(
-            cam_x, 5, cam_z, # Camera Position (eye)
-            player.position[0], player.position[1], player.position[2], # Look At point (center)
-            0, 1, 0           # Up vector
-        )
+            # --- Update ---
+            player.update(keys)
 
-        # Clear the color and depth buffers
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+            # --- Drawing ---
+            # Reset the modelview matrix for this frame. This is crucial.
+            glLoadIdentity()
+            
+            # --- Camera Setup ---
+            # The camera should be positioned behind the player.
+            # camera_pos = player_pos - (forward_vector * distance)
+            # This translates to:
+            cam_x = player.position[0] - 10 * (-math.sin(math.radians(player.angle)))
+            cam_z = player.position[2] - 10 * (-math.cos(math.radians(player.angle)))
+            gluLookAt(
+                cam_x, 5, cam_z, # Camera Position (eye)
+                player.position[0], player.position[1], player.position[2], # Look At point (center)
+                0, 1, 0           # Up vector
+            )
 
-        # --- Draw Scene ---
-        Ground()
-        player.draw()
+            # Clear the color and depth buffers
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-        # --- Display Update ---
-        # This is where the OpenGL buffer is swapped to the screen
-        pygame.display.flip() 
-        
-        # --- Frame Capture for gRPC ---
-        # Get the dimensions of the Pygame window
-        width, height = display
+            # --- Draw Scene ---
+            Ground()
+            player.draw()
 
-        # Read the raw pixel data directly from the OpenGL front buffer
-        glReadBuffer(GL_FRONT)
-        pixels = glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE)
+            # --- Display Update ---
+            # This is where the OpenGL buffer is swapped to the screen
+            pygame.display.flip() 
+            
+            # --- Frame Capture for gRPC ---
+            # Get the dimensions of the Pygame window
+            width, height = display
 
-        # Create a Pygame surface from the raw pixel data
-        frame_surface = pygame.image.fromstring(pixels, (width, height), 'RGB')
+            # Read the raw pixel data directly from the OpenGL front buffer
+            glReadBuffer(GL_FRONT)
+            pixels = glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE)
 
-        # OpenGL's origin is at the bottom-left, Pygame's is at the top-left.
-        # We need to flip the image vertically.
-        frame_surface_flipped = pygame.transform.flip(frame_surface, False, True)
-        
-        # Now, put the CORRECT surface into the queue
-        try:
-            frame_queue.get_nowait() # Clear old frame
-        except queue.Empty:
-            pass
+            # Create a Pygame surface from the raw pixel data
+            frame_surface = pygame.image.fromstring(pixels, (width, height), 'RGB')
 
-        try:
-            # Put the flipped surface, which contains the actual rendered image
-            frame_queue.put_nowait(frame_surface_flipped)
-        except queue.Full:
-            pass
+            # OpenGL's origin is at the bottom-left, Pygame's is at the top-left.
+            # We need to flip the image vertically.
+            frame_surface_flipped = pygame.transform.flip(frame_surface, False, True)
+            
+            # Now, put the CORRECT surface into the queue
+            try:
+                frame_queue.get_nowait() # Clear old frame
+            except queue.Empty:
+                pass
 
-        clock.tick(60)
+            try:
+                # Put the flipped surface, which contains the actual rendered image
+                frames_generated += 1
+                if frames_generated == 1:
+                    frame_queue.put_nowait(frame_surface_flipped)
+                    frames_generated = 0
+                
+            except queue.Full:
+                pass
+            except Exception as e:
+                print(f"Frame Generation Exception: {e}")
+
+            clock.tick(15)
+    finally:
+        command_subscriber_client.loop_stop()
 
 # --- Run the game ---
 if __name__ == "__main__":
