@@ -1,8 +1,19 @@
 import pygame
 import sys
 import logging
+import cv2
+import numpy as np
+import os
+import json
 from typing import Callable, Optional, List
 from gui_config import ConnectionStatus, ArmState, Colour, GuiConfig
+
+# Get the parent directory path
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(parent_dir)
+
+# Now you can import modules from the parent directory
+from tiality_server import TialityServerManager
 
 # Configure logging
 logging.basicConfig(
@@ -10,6 +21,49 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+def _decode_video_frame_opencv(frame_bytes: bytes) -> pygame.Surface:
+    """
+    Decodes a byte array (JPEG) into a Pygame surface using the highly
+    optimized OpenCV library. This is the recommended, high-performance method.
+
+    Args:
+        frame_bytes: The raw byte string of a single JPEG image.
+
+    Returns:
+        A Pygame.Surface object, or None if decoding fails.
+    """
+    try:
+        # 1. Convert the raw byte string to a 1D NumPy array.
+        #    This is a very fast, low-level operation.
+        np_array = np.frombuffer(frame_bytes, np.uint8)
+        
+        # 2. Decode the NumPy array into an OpenCV image.
+        #    This is the core, high-speed decoding step. The result is in BGR format.
+        img_bgr = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
+        
+        img_bgr = cv2.resize(img_bgr, (510, 230), interpolation=cv2.INTER_AREA)
+
+        # 3. Convert the color format from BGR (OpenCV's default) to RGB (Pygame's default).
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        
+        # 4. Correct the orientation. OpenCV arrays are (height, width), but
+        #    pygame.surfarray.make_surface expects (width, height). We swap the axes.
+        img_rgb = img_rgb.swapaxes(0, 1)
+
+        # 5. Create a Pygame surface directly from the NumPy array.
+        #    This is another very fast, low-level operation.
+        frame_surface = pygame.surfarray.make_surface(img_rgb)
+        
+        return frame_surface
+        
+    except Exception as e:
+        # If any part of the decoding fails (e.g., due to a corrupted frame),
+        # print an error and return None so the GUI doesn't crash.
+        print(f"Error decoding frame with OpenCV: {e}")
+        return None
+
+
 
 class ExplorerGUI:
     """
@@ -44,8 +98,17 @@ class ExplorerGUI:
         # Initialise application state
         self._init_state()
         
-        # Setup callback and timing
-        self.command_callback = command_callback
+        # Setup Server and shared frame queue
+        self.server_manager = TialityServerManager(
+            grpc_port = 50051, 
+            mqtt_port = 1883, 
+            mqtt_broker_host_ip = "localhost",
+            decode_video_func = _decode_video_frame_opencv,
+            num_decode_video_workers = 1 # Don't change this for now
+            )
+        self.server_manager.start_servers()
+
+        # Setup timing
         self.clock = pygame.time.Clock()
         self.running = True
         
@@ -75,7 +138,7 @@ class ExplorerGUI:
     def _init_camera_layout(self) -> None:
         # Camera feed positions (left and right)
         self.camera_positions = [
-            (30, 170),   # Camera 1 position (left)
+            (35, 255),   # Camera 1 position (left)
             (450, 170),  # Camera 2 position (right)
         ]
         
@@ -91,12 +154,15 @@ class ExplorerGUI:
     def _init_state(self) -> None:
         """Initialise Explorer Control state variables."""
         # Movement control states
-        self.movement_keys = {
-            'up': False, 
-            'down': False, 
-            'left': False, 
-            'right': False
-        }
+        # Set default keybindings
+        self.default_keys = {}
+        self.default_keys["up"] = False
+        self.default_keys["down"] = False
+        self.default_keys["rotate_left"] = False
+        self.default_keys["rotate_right"] = False
+        self.default_keys["left"] = False
+        self.default_keys["right"] = False
+        self.movement_keys = self.default_keys.copy()
         
         # Camera states (all cameras start active)
         self.camera_states = [True] * self.config.NUM_CAMERAS
@@ -113,14 +179,11 @@ class ExplorerGUI:
         """
         Send command to Pi via callback function 
         """
-        if self.command_callback:
-            try:
-                self.command_callback(command)
-                logger.debug(f"Command sent: {command}")
-            except Exception as e:
-                logger.error(f"Command callback error: {e}")
-        else:
-            logger.info(f"Command (no callback): {command}")
+        try:
+            self.server_manager.send_command(command)
+            logger.debug(f"Command sent: {command}")
+        except Exception as e:
+            logger.error(f"Command callback error: {e}")
 
     def set_connection_status(self, status: ConnectionStatus) -> None:
         """TODO: Set connection for GUI idk if you want to open a socket and send over on a port"""
@@ -138,11 +201,13 @@ class ExplorerGUI:
         """
         Get list of currently active movement directions.
         """
-        return [
-            direction.upper() 
-            for direction, is_active in self.movement_keys.items() 
-            if is_active
-        ]
+        # return [
+        #     direction.upper() 
+        #     for direction, is_active in self.movement_keys.items() 
+        #     if is_active
+        # ]
+        
+        return self.movement_keys
 
     def handle_movement(self) -> None:
         """Process current movement key states and send commands."""
@@ -150,12 +215,21 @@ class ExplorerGUI:
         
         if active_movements:
             # Build movement command from active directions
-            command = 'MOVE_' + '_'.join(active_movements)
-            self.send_command(command)
+            
+            json_string = json.dumps(active_movements)
+            encoded_string = json_string.encode()
+            self.send_command(encoded_string)
 
     # ============================================================================
     # DRAWING METHODS
     # ============================================================================
+    def _collect_recent_frame(self):
+        """
+        Collect frames from server manager to display, currently only works for first display
+        """
+        #TODO: Add multiple camera functionality
+        self.camera_surfaces[0] = self.server_manager.get_video_frame()
+        # print(type(self.server_manager.get_video_frame()))
 
     def _draw_cameras(self) -> None:
         """Draw camera feeds and their status indicators."""
@@ -259,10 +333,11 @@ class ExplorerGUI:
             "",
             "KEYBOARD CONTROLS:",
             "  WASD / Arrow Keys - Move car",
+            " E/R - Rotate Car"
             "  Space - Emergency stop",
-            "  1, 2 - Toggle cameras",
-            "  X - Extend arm",
-            "  C - Contract arm",
+            "  TODO: 1, 2 - Toggle cameras",
+            "  TODO: X - Extend arm",
+            "  TODO: C - Contract arm",
             "  H - Show/hide this help",
             "  ESC - Exit",
             "",
@@ -306,6 +381,7 @@ class ExplorerGUI:
                     waiting_for_input = False
                     
                     if event.type == pygame.QUIT:
+                        self.server_manager.close_servers()
                         self.running = False
 
     # ============================================================================
@@ -321,26 +397,39 @@ class ExplorerGUI:
             is_key_pressed: True for key press, False for key release
         """
         # Map pygame keys to movement directions
-        key_to_direction = {
-            pygame.K_UP: 'up', 
-            pygame.K_w: 'up',
-            pygame.K_DOWN: 'down', 
-            pygame.K_s: 'down',
-            pygame.K_LEFT: 'left', 
-            pygame.K_a: 'left',
-            pygame.K_RIGHT: 'right', 
-            pygame.K_d: 'right'
-        }
+        # key_to_direction = {
+        #     pygame.K_UP: 'up', 
+        #     pygame.K_w: 'up',
+        #     pygame.K_DOWN: 'down', 
+        #     pygame.K_s: 'down',
+        #     pygame.K_LEFT: 'left', 
+        #     pygame.K_a: 'left',
+        #     pygame.K_RIGHT: 'right', 
+        #     pygame.K_d: 'right',
+        #     pygame.K_e: 'rotate_right',
+        #     pygame.K_q: 'rotate_left'
+        # }
         
-        if event.key in key_to_direction:
-            direction = key_to_direction[event.key]
-            self.movement_keys[direction] = is_key_pressed
+        # if event.key in key_to_direction:
+        #     direction = key_to_direction[event.key]
+        #     self.movement_keys[direction] = is_key_pressed
+
+        pygame_keys = pygame.key.get_pressed()
+        keys = self.default_keys.copy()
+        keys["up"] = pygame_keys[pygame.K_w] or pygame_keys[pygame.K_UP]
+        keys["down"] = pygame_keys[pygame.K_s] or pygame_keys[pygame.K_DOWN]
+        keys["rotate_left"] = pygame_keys[pygame.K_q]
+        keys["rotate_right"] = pygame_keys[pygame.K_e]
+        keys["left"] = pygame_keys[pygame.K_a]
+        keys["right"] = pygame_keys[pygame.K_d]
+        self.movement_keys = keys.copy()
 
     def _handle_function_keys(self, event: pygame.event.Event) -> None:
         key = event.key
         
         if key == pygame.K_SPACE:
-            self.send_command('STOP')
+            pass
+            #self.send_command(json.dumps(self.default_keys.copy()).encode())
         elif key == pygame.K_ESCAPE:
             self.running = False
         elif key == pygame.K_h:
@@ -359,15 +448,15 @@ class ExplorerGUI:
         state = "ON" if self.camera_states[camera_index] else "OFF"
         command = f'CAMERA_{camera_number}_{state}'
         
-        self.send_command(command)
+        #self.send_command(command)
 
     def _handle_arm_control(self, key: int) -> None:
         if key == pygame.K_x:
             self.arm_state = ArmState.EXTENDED
-            self.send_command('ARM_EXTEND')
+            #self.send_command('ARM_EXTEND')
         elif key == pygame.K_c:
             self.arm_state = ArmState.RETRACTED
-            self.send_command('ARM_CONTRACT')
+            #self.send_command('ARM_CONTRACT')
 
     def handle_events(self) -> None:
         """Handle all pygame events."""
@@ -390,6 +479,7 @@ class ExplorerGUI:
 
     def render(self) -> None:
         """Render the current frame."""
+        self._collect_recent_frame()
         self.screen.blit(self.background, (0, 0))
         self.draw_overlays()
         pygame.display.flip()
@@ -416,6 +506,7 @@ class ExplorerGUI:
     def cleanup(self) -> None:
         """Clean up resources before exit."""
         logger.info("Cleaning up resources...")
+        self.server_manager.close_servers()
         pygame.quit()
         sys.exit()
 
@@ -433,7 +524,7 @@ if __name__ == "__main__":
     print()
     
     # Configure Background Path
-    image_path = "GUI/wildlife_explorer.png"
+    image_path = "GUI/wildlife_explorer_cams_open.png"
     
     if not os.path.exists(image_path):
         print(f"Image file '{image_path}' not found.")

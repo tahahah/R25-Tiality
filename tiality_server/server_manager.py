@@ -8,11 +8,14 @@ class TialityServerManager:
         """
         Tiality Robot Server Manager
 
-        The instance of this Class will operate on the main thread, while all workers w
-        
+        The instance of this Class will operate on the main thread, while all workers spawned will be controlled by the Connection Manager THread
+
         Args:
-            server_ip (_type_): _description_
-            server_port (_type_): _description_
+            grpc_port (int): _description_
+            mqtt_port (int): _description_
+            mqtt_broker_host_ip (str): _description_
+            decode_video_func (Callable): _description_
+            num_decode_video_workers (int): KEEP THIS AT 1 FOR NOW, DOES NOT SCALE WELL
         """
         self.servers_active = False
         self.decode_video_func = decode_video_func

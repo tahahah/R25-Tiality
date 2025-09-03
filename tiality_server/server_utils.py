@@ -6,6 +6,25 @@ from .video_streaming import decoder_worker
 from .command_streaming import publisher as command_publisher
 
 def _connection_manager_worker(grpc_port, incoming_video_queue, decoded_video_queue, mqtt_broker_host_ip, mqtt_port, tx_topic, rx_topic, command_queue, connection_established_event, shutdown_event, decode_video_func, num_decode_video_workers):
+    """
+    Thread to manage all connections.
+    These threads include:
+        1. GRPC Video Server Thread
+
+    Args:
+        grpc_port (_type_): _description_
+        incoming_video_queue (_type_): _description_
+        decoded_video_queue (_type_): _description_
+        mqtt_broker_host_ip (_type_): _description_
+        mqtt_port (_type_): _description_
+        tx_topic (_type_): _description_
+        rx_topic (_type_): _description_
+        command_queue (_type_): _description_
+        connection_established_event (_type_): _description_
+        shutdown_event (_type_): _description_
+        decode_video_func (_type_): _description_
+        num_decode_video_workers (_type_): _description_
+    """
 
     video_producer_thread = None
     video_decoder_threads = [None for _ in range(num_decode_video_workers)]

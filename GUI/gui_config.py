@@ -37,7 +37,7 @@ class GuiConfig:
     """Configuration constants for the GUI."""
     SCREEN_WIDTH: int = 1280
     SCREEN_HEIGHT: int = 720
-    CAMERA_WIDTH: int = 350
+    CAMERA_WIDTH: int = 320
     CAMERA_HEIGHT: int = 240
     FPS: int = 60
     NUM_CAMERAS: int = 2

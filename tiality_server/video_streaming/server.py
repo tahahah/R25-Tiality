@@ -71,7 +71,7 @@ def serve(grpc_port, video_queue, connection_established_event, shutdown_event):
     """
     # Create a gRPC server instance. We use a ThreadPoolExecutor to handle
     # incoming requests concurrently.
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=3))
     video_streaming_pb2_grpc.add_VideoStreamingServicer_to_server(
         VideoStreamingServicer(video_queue, connection_established_event, shutdown_event), server
     )

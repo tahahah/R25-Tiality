@@ -285,7 +285,7 @@ def main():
 
     # --- Pygame Initialization ---
     pygame.init()
-    display = (640, 480)
+    display = (320, 240)
     # Set display mode for OpenGL. DOUBLEBUF means we have two display buffers
     # to prevent flickering. OPENGL specifies we're using OpenGL.
     screen = pygame.display.set_mode(display, DOUBLEBUF | OPENGL)

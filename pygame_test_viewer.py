@@ -60,7 +60,7 @@ def run_pygame_display(server_manager: tiality_server.TialityServerManager):
     """
     # 1. Initialize Pygame and set up the display.
     pygame.init()
-    screen_width, screen_height = 640, 480
+    screen_width, screen_height = 320, 240
     screen = pygame.display.set_mode((screen_width, screen_height))
     pygame.display.set_caption("Robot Video Feed")
     font = pygame.font.Font(None, 50)

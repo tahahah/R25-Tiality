@@ -14,10 +14,7 @@ def start_decoder_worker(incoming_video_queue: queue.Queue, decoded_video_queue:
         except queue.Empty:
             continue
 
-        start_t = time.time()
         decoded_frame = decode_video_func(frame_bytes)
-        decode_time = time.time() - start_t
-        print(f"decoded in {decode_time}")
 
         # Use a "dumping" pattern on the queue to ensure it only holds
         # the single most recent frame.
