@@ -1,0 +1,31 @@
+// Specifies that we are using proto3 syntax.
+syntax = "proto3";
+
+// Defines a package name to prevent naming conflicts.
+package video;
+
+// The service definition for our video streaming application.
+// This service will run on your GUI (the server).
+service VideoStreaming {
+  // Defines a client-streaming RPC method.
+  // The client (Raspberry Pi) will send a stream of VideoFrame messages.
+  // The server (GUI) will process them and send back a single StreamResponse
+  // once the client has finished sending frames.
+  rpc StreamVideo (stream VideoFrame) returns (StreamResponse) {}
+}
+
+// The message format for a single video frame.
+message VideoFrame {
+  // The raw image data for the frame, sent as bytes.
+  // This is where you'll put your JPEG or PNG encoded image data.
+  // The '1' is the field number, which is used for binary encoding.
+  bytes frame_data = 1;
+}
+
+// The response message sent from the server to the client
+// after the video stream has been processed.
+message StreamResponse {
+  // A simple status message to confirm receipt.
+  // For example: "Stream received successfully."
+  string status_message = 1;
+}
