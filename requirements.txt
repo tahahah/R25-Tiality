@@ -1,3 +1,8 @@
+
+opencv-python
+paho-mqtt
+aiortc
+av
 grpcio==1.74.0
 grpcio-tools==1.74.0
 numpy==2.2.6
@@ -9,3 +14,4 @@ pygame==2.6.1
 PyOpenGL==3.1.9
 PyOpenGL-accelerate==3.1.9
 pyserial==3.5
+
