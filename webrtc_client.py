@@ -135,8 +135,8 @@ class WebRTCClient:
             while True:
                 frame = await track.recv()
                 if frame:
-                    # Convert frame to numpy array for OpenCV
-                    img = frame.to_ndarray(format="bgr24")
+                    # Convert frame to RGB numpy array
+                    img = frame.to_ndarray(format="rgb24")
                     
                     # Add frame to queue (non-blocking, drop old frames if queue is full)
                     try:
@@ -161,8 +161,9 @@ class WebRTCClient:
                 # Get frame from queue with timeout
                 frame = await asyncio.wait_for(self.frame_queue.get(), timeout=1.0)
                 
-                # Display frame
-                cv2.imshow("Pi Camera Stream (WebRTC)", frame)
+                # Display frame (convert RGB->BGR for OpenCV window)
+                display_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                cv2.imshow("Pi Camera Stream (WebRTC)", display_frame)
                 
                 # Check for quit key
                 key = cv2.waitKey(1) & 0xFF

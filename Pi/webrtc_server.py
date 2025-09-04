@@ -25,7 +25,7 @@ class CameraVideoTrack(VideoStreamTrack):
             self.picam = Picamera2()
             # Configure camera for 640x480 at 30fps
             config = self.picam.create_video_configuration(
-                main={"size": (640, 480), "format": "RGB888"}
+                main={"size": (1920, 1080), "format": "RGB888"}
             )
             self.picam.configure(config)
             self.picam.start()
