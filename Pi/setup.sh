@@ -50,16 +50,15 @@ sudo systemctl stop mosquitto 2>/dev/null || true
 sudo systemctl disable mosquitto 2>/dev/null || true
 
 echo "--- Setting up Python environment ---"
-if [ ! -d "$SCRIPT_DIR/../.venv" ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv "$SCRIPT_DIR/../.venv"
-    source "$SCRIPT_DIR/../.venv/bin/activate"
-    echo "Installing Python dependencies (first-time)..."
-    pip install -r "$SCRIPT_DIR/requirements.txt"
-else
-    echo "Using existing virtual environment; skipping dependency install."
-    source "$SCRIPT_DIR/../.venv/bin/activate"
+# Remove existing venv to ensure --system-site-packages takes effect
+if [ -d "$SCRIPT_DIR/../.venv" ]; then
+    echo "Removing existing virtual environment to recreate with system packages..."
+    rm -rf "$SCRIPT_DIR/../.venv"
 fi
+
+# Create new venv with system site packages
+python3 -m venv "$SCRIPT_DIR/../.venv" --system-site-packages
+source "$SCRIPT_DIR/../.venv/bin/activate"
 
 # Use system numpy and opencv to avoid conflicts with picamera2
 echo "Using system numpy and opencv for picamera2 compatibility..."
