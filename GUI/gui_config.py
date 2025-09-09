@@ -16,8 +16,14 @@ class ConnectionStatus(Enum):
 
 class ArmState(Enum):
     """Arm position state enumeration."""
-    EXTENDED = "EXTENDED"
-    RETRACTED = "RETRACTED"
+    RAISED = "RAISED"    # When raised, arrow keys control gimbal
+    LOWERED = "LOWERED"  # When lowered, arrow keys control car
+
+
+class GimbalMode(Enum):
+    """Gimbal control mode."""
+    CAR_CONTROL = "CAR_CONTROL"      # Arrow keys move car
+    GIMBAL_CONTROL = "GIMBAL_CONTROL" # Arrow keys move gimbal
 
 
 @dataclass

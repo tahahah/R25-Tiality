@@ -3,6 +3,7 @@ import sys
 import logging
 from typing import Callable, Optional, List
 from gui_config import ConnectionStatus, ArmState, Colour, GuiConfig
+from gui_mqtt_client import GuiMqttClient
 
 # Configure logging
 logging.basicConfig(
@@ -23,11 +24,13 @@ class ExplorerGUI:
     def __init__(
         self, 
         background_image_path: str, 
+        pi_ip: str = "172.20.10.11",
         command_callback: Optional[Callable[[str], None]] = None
     ):
         """
         Args:
             background_image_path: Path to the background image file
+            pi_ip: IP address of the Raspberry Pi
             command_callback: Callback function for handling commands to PI
         """
         # Initialise core components
@@ -47,6 +50,11 @@ class ExplorerGUI:
         # Setup callback and timing
         self.command_callback = command_callback
         self.clock = pygame.time.Clock()
+        
+        # Setup MQTT client
+        self.mqtt_client = GuiMqttClient(pi_ip)
+        self.mqtt_client.set_connection_callback(self._on_connection_change)
+        self.mqtt_connected = self.mqtt_client.connect()
         self.running = True
         
         logger.info("Wildlife Explorer GUI initialised successfully")
@@ -102,25 +110,84 @@ class ExplorerGUI:
         self.camera_states = [True] * self.config.NUM_CAMERAS
         
         # Hardware states
-        self.arm_state = ArmState.RETRACTED
+        self.arm_state = ArmState.LOWERED
+        
+        # Add gimbal state tracking
+        self.gimbal_position = {'x': 90, 'y': 90, 'c': 90}  # Track current angles
+        
         self.connection_status = ConnectionStatus.DISCONNECTED
+
+    @property
+    def is_gimbal_mode(self) -> bool:
+        """Returns True if we're in gimbal control mode (arm is raised)"""
+        return self.arm_state == ArmState.RAISED
+    
+    def _on_connection_change(self, connected: bool):
+        """Callback for MQTT connection status changes"""
+        if connected:
+            self.connection_status = ConnectionStatus.CONNECTED
+        else:
+            self.connection_status = ConnectionStatus.DISCONNECTED
+        logger.info(f"Pi connection status: {self.connection_status.value}")
 
     # ============================================================================
     # COMMAND AND STATUS METHODS
     # ============================================================================
 
     def send_command(self, command: str) -> None:
-        """
-        Send command to Pi via callback function 
-        """
+        """Enhanced command sending with MQTT support"""
+        logger.info(f"Sending command: {command}")
+        
+        # Handle different command types via MQTT
+        if command.startswith('GIMBAL_'):
+            self._send_gimbal_mqtt_command(command)
+        elif command in ['UP', 'DOWN', 'LEFT', 'RIGHT']:
+            self._send_movement_command(command)
+        elif command == 'STOP':
+            self.mqtt_client.send_stop_command()
+        elif command.startswith('ARM_'):
+            # For now, just log arm commands - could extend later
+            logger.info(f"Arm command: {command}")
+        
+        # Call existing callback if set (for backwards compatibility)
         if self.command_callback:
             try:
                 self.command_callback(command)
-                logger.debug(f"Command sent: {command}")
             except Exception as e:
                 logger.error(f"Command callback error: {e}")
-        else:
-            logger.info(f"Command (no callback): {command}")
+    
+    def _send_gimbal_mqtt_command(self, command: str) -> None:
+        """Convert GUI command to MQTT gimbal command"""
+        # Parse command like "GIMBAL_X_LEFT_10"
+        parts = command.split('_')
+        if len(parts) >= 3:
+            action = f"{parts[1].lower()}_{parts[2].lower()}"  # "x_left"
+            degrees = int(parts[3]) if len(parts) > 3 else 10
+            
+            # This would integrate with your MQTT client
+            mqtt_command = {
+                "type": "gimbal", 
+                "action": action,
+                "degrees": degrees
+            }
+            
+            # Send via MQTT client to Pi
+            self.mqtt_client.send_gimbal_command(action, degrees)
+    
+    def _send_movement_command(self, direction: str) -> None:
+        """Send motor movement command via MQTT"""
+        # Convert direction to velocity vector
+        vx, vy = 0, 0
+        if direction == "UP":
+            vy = 50
+        elif direction == "DOWN":
+            vy = -50
+        elif direction == "LEFT":
+            vx = -50
+        elif direction == "RIGHT":
+            vx = 50
+        
+        self.mqtt_client.send_motor_command(vx, vy, 0)
 
     def set_connection_status(self, status: ConnectionStatus) -> None:
         """TODO: Set connection for GUI idk if you want to open a socket and send over on a port"""
@@ -219,13 +286,22 @@ class ExplorerGUI:
         self.screen.blit(status_surface, (30, y_position))
 
     def _draw_arm_status(self, y_position: int) -> None:
-        is_extended = (self.arm_state == ArmState.EXTENDED)
-        arm_colour = self.colours.GREEN if is_extended else self.colours.BLUE
+        """Enhanced status display"""
+        is_raised = (self.arm_state == ArmState.RAISED)
+        arm_colour = self.colours.GREEN if is_raised else self.colours.BLUE
         
-        arm_text = f"Arm: {self.arm_state.value}"
+        # Show current mode
+        mode_text = "GIMBAL MODE" if is_raised else "CAR MODE"
+        arm_text = f"Arm: {self.arm_state.value} ({mode_text})"
+        
         arm_surface = self.fonts['medium'].render(arm_text, True, arm_colour)
-        
         self.screen.blit(arm_surface, (30, y_position))
+        
+        # Show gimbal position when in gimbal mode
+        if is_raised:
+            pos_text = f"Gimbal: X={self.gimbal_position['x']}° Y={self.gimbal_position['y']}° C={self.gimbal_position['c']}°"
+            pos_surface = self.fonts['small'].render(pos_text, True, self.colours.YELLOW)
+            self.screen.blit(pos_surface, (30, y_position + 25))
 
     def draw_overlays(self) -> None:
         """Draw all interactive overlays on top of the background image."""
@@ -246,33 +322,38 @@ class ExplorerGUI:
         self._wait_for_keypress()
 
     def _draw_help_overlay(self) -> None:
-        """Draw semi-transparent background for help text."""
-        screen_size = (self.config.SCREEN_WIDTH, self.config.SCREEN_HEIGHT)
-        overlay = pygame.Surface(screen_size, pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 200))  # Semi-transparent black
-        self.screen.blit(overlay, (0, 0))
-
-    def _draw_help_text(self) -> None:
-        """Draw help text content."""
-        help_content = [
-            "WILDLIFE EXPLORER - RC Buggy",
-            "",
-            "KEYBOARD CONTROLS:",
-            "  WASD / Arrow Keys - Move car",
-            "  Space - Emergency stop",
-            "  1, 2 - Toggle cameras",
-            "  X - Extend arm",
-            "  C - Contract arm",
-            "  H - Show/hide this help",
-            "  ESC - Exit",
-            "",
-            "Press any key to close help"
-        ]
+        """Draw help overlay with context-aware instructions"""
+        if self.is_gimbal_mode:
+            help_lines = [
+                "GIMBAL CONTROL MODE (Arm Raised):",
+                "  Arrow Keys / WASD - Control gimbal X/Y",
+                "  X - Crane up", 
+                "  C - Crane down",
+                "  Space - Emergency stop",
+                "  1, 2 - Toggle cameras",
+                "  H - Show/hide this help",
+                "  ESC - Exit",
+                "",
+                "Lower arm to return to car control",
+                "Press any key to close help"
+            ]
+        else:
+            help_lines = [
+                "CAR CONTROL MODE (Arm Lowered):",
+                "  Arrow Keys / WASD - Move car",
+                "  X - Raise arm (enables gimbal control)",
+                "  Space - Emergency stop", 
+                "  1, 2 - Toggle cameras",
+                "  H - Show/hide this help",
+                "  ESC - Exit",
+                "",
+                "Press any key to close help"
+            ]
         
         starting_y = 150
         line_spacing = 40
         
-        for line_index, line_text in enumerate(help_content):
+        for line_index, line_text in enumerate(help_lines):
             if not line_text:  # Skip empty lines
                 continue
             
@@ -313,14 +394,45 @@ class ExplorerGUI:
     # ============================================================================
 
     def _handle_movement_keys(self, event: pygame.event.Event, is_key_pressed: bool) -> None:
-        """
-        Handle movement key press/release events.
+        """Handle movement keys - now context-aware for car vs gimbal"""
         
-        Args:
-            event: Pygame event object
-            is_key_pressed: True for key press, False for key release
-        """
-        # Map pygame keys to movement directions
+        if self.is_gimbal_mode:
+            # GIMBAL CONTROL MODE
+            self._handle_gimbal_keys(event, is_key_pressed)
+        else:
+            # CAR CONTROL MODE (existing logic)
+            self._handle_car_movement_keys(event, is_key_pressed)
+    
+    def _handle_gimbal_keys(self, event: pygame.event.Event, is_key_pressed: bool) -> None:
+        """Handle gimbal control when arm is raised"""
+        if not is_key_pressed:
+            return  # Only handle key press, not release for gimbal
+            
+        gimbal_commands = {
+            pygame.K_LEFT: 'x_left',    # Left arrow = gimbal left
+            pygame.K_a: 'x_left',       # A = gimbal left  
+            pygame.K_RIGHT: 'x_right',  # Right arrow = gimbal right
+            pygame.K_d: 'x_right',      # D = gimbal right
+            pygame.K_UP: 'y_up',        # Up arrow = gimbal up
+            pygame.K_w: 'y_up',         # W = gimbal up
+            pygame.K_DOWN: 'y_down',    # Down arrow = gimbal down
+            pygame.K_s: 'y_down'        # S = gimbal down
+        }
+        
+        if event.key in gimbal_commands:
+            action = gimbal_commands[event.key]
+            degrees = 10  # Default movement amount
+            
+            # Send MQTT gimbal command
+            gimbal_command = {
+                "type": "gimbal",
+                "action": action,
+                "degrees": degrees
+            }
+            self.send_command(f'GIMBAL_{action.upper()}_{degrees}')
+    
+    def _handle_car_movement_keys(self, event: pygame.event.Event, is_key_pressed: bool) -> None:
+        """Original car movement logic"""
         key_to_direction = {
             pygame.K_UP: 'up', 
             pygame.K_w: 'up',
@@ -335,8 +447,31 @@ class ExplorerGUI:
         if event.key in key_to_direction:
             direction = key_to_direction[event.key]
             self.movement_keys[direction] = is_key_pressed
+    
+    def _handle_arm_control(self, key: int) -> None:
+        """Enhanced arm control with crane functionality"""
+        if key == pygame.K_x:
+            if self.arm_state == ArmState.LOWERED:
+                # Raise the arm (switch to gimbal mode)
+                self.arm_state = ArmState.RAISED
+                self.send_command('ARM_RAISE')
+            else:
+                # Arm is raised - X now controls crane up
+                self.send_command('GIMBAL_C_UP_10')
+                
+        elif key == pygame.K_c:
+            if self.arm_state == ArmState.LOWERED:
+                # This shouldn't happen, but handle gracefully
+                pass  
+            else:
+                # Arm is raised - C controls crane down
+                self.send_command('GIMBAL_C_DOWN_10')
+                
+        # Add way to lower arm (maybe hold shift + C or new key)
+        # Or add automatic lowering after inactivity
 
     def _handle_function_keys(self, event: pygame.event.Event) -> None:
+        """Enhanced function key handling"""
         key = event.key
         
         if key == pygame.K_SPACE:
@@ -349,6 +484,11 @@ class ExplorerGUI:
             self._handle_camera_toggle(key)
         elif key in (pygame.K_x, pygame.K_c):
             self._handle_arm_control(key)
+        elif key == pygame.K_r:  # New: R key to return to car mode
+            if self.arm_state == ArmState.RAISED:
+                self.arm_state = ArmState.LOWERED
+                self.send_command('ARM_LOWER')
+                logger.info("Returned to car control mode")
 
     def _handle_camera_toggle(self, key: int) -> None:
         camera_index = 0 if key == pygame.K_1 else 1
@@ -360,14 +500,6 @@ class ExplorerGUI:
         command = f'CAMERA_{camera_number}_{state}'
         
         self.send_command(command)
-
-    def _handle_arm_control(self, key: int) -> None:
-        if key == pygame.K_x:
-            self.arm_state = ArmState.EXTENDED
-            self.send_command('ARM_EXTEND')
-        elif key == pygame.K_c:
-            self.arm_state = ArmState.RETRACTED
-            self.send_command('ARM_CONTRACT')
 
     def handle_events(self) -> None:
         """Handle all pygame events."""
@@ -416,7 +548,12 @@ class ExplorerGUI:
     def cleanup(self) -> None:
         """Clean up resources before exit."""
         logger.info("Cleaning up resources...")
+        # Cleanup MQTT connection
+        if hasattr(self, 'mqtt_client'):
+            self.mqtt_client.disconnect()
+        
         pygame.quit()
+        logger.info("GUI shutdown complete")
         sys.exit()
 
 
@@ -433,7 +570,8 @@ if __name__ == "__main__":
     print()
     
     # Configure Background Path
-    image_path = "GUI/wildlife_explorer.png"
+   
+    image_path = "wildlife_explorer.png"
     
     if not os.path.exists(image_path):
         print(f"Image file '{image_path}' not found.")
@@ -444,8 +582,11 @@ if __name__ == "__main__":
     def command_callback(command: str) -> None:
         logger.info(f"GUI Command: {command}")
     
+    # Configure Pi IP address
+    PI_IP = "192.168.1.100"  # Change this to your Pi's IP address
+    
     try:
-        gui = ExplorerGUI(image_path, command_callback)
+        gui = ExplorerGUI(image_path, PI_IP, command_callback)
         gui.run()
     except KeyboardInterrupt:
         logger.info("Application interrupted by user")
