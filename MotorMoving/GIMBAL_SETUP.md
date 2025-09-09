@@ -1,31 +1,32 @@
 # 🎯 Gimbal Control System Setup Guide
 
-This guide explains how to set up and use the integrated gimbal control system with your existing MQTT infrastructure.
+This guide explains how to set up and use the integrated 3-axis gimbal control system with your existing MQTT infrastructure.
 
 ## 📋 What's Been Added
 
-Your existing `mqtt_to_pwm.py` has been enhanced with gimbal control capabilities:
+Your existing `mqtt_to_pwm.py` has been enhanced with 3-axis gimbal control capabilities:
 
 - **Gimbal Controller Class**: Integrates with your existing `gimbalcode.py`
 - **MQTT Command Handling**: Processes gimbal commands alongside motor commands
-- **Pin Configuration**: Uses pins 12 (X-axis) and 13 (Y-axis) as requested
+- **Pin Configuration**: Uses pins 18 (X-axis), 27 (Y-axis), and 22 (Crane)
 - **Error Handling**: Robust error handling and logging
 
 ## 🔧 Hardware Setup
 
 ### Servo Connections
-- **X-axis servo (left/right)**: Connect to GPIO pin 12
-- **Y-axis servo (up/down)**: Connect to GPIO pin 13
+- **X-axis servo (left/right)**: Connect to GPIO pin 18
+- **Y-axis servo (up/down)**: Connect to GPIO pin 27
+- **Crane servo (up/down)**: Connect to GPIO pin 22
 - **Power**: 5V supply for servos
 - **Ground**: Common ground with Raspberry Pi
 
 ### Pin Layout
 ```
 Raspberry Pi GPIO:
-┌─────────┬─────────┐
-│ Pin 12 │ Pin 13 │  ← Gimbal servos
-│  (X)   │  (Y)   │
-└─────────┴─────────┘
+┌─────────┬─────────┬─────────┐
+│ Pin 18 │ Pin 27 │ Pin 22 │  ← Gimbal servos
+│  (X)   │  (Y)   │  (C)   │
+└─────────┴─────────┴─────────┘
 ```
 
 ## 🚀 Setup Instructions
@@ -45,7 +46,7 @@ pip3 install paho-mqtt
 # Navigate to MotorMoving folder
 cd MotorMoving
 
-# Run the enhanced mqtt_to_pwm.py (now with gimbal support)
+# Run the enhanced mqtt_to_pwm.py (now with 3-axis gimbal support)
 python3 mqtt_to_pwm.py --broker localhost
 ```
 
@@ -92,12 +93,16 @@ All gimbal commands use this JSON format:
 | `x_right` | Move right | `degrees` (default: 10) |
 | `y_up` | Move up | `degrees` (default: 10) |
 | `y_down` | Move down | `degrees` (default: 10) |
-| `center` | Center both axes | None |
+| `c_up` | Crane up | `degrees` (default: 10) |
+| `c_down` | Crane down | `degrees` (default: 10) |
+| `center` | Center all axes | None |
 | `position` | Get current position | None |
-| `set_angle` | Set specific angles | `x_angle`, `y_angle` |
+| `set_angle` | Set specific angles | `x_angle`, `y_angle`, `c_angle` |
 
 ### Keyboard Controls (Remote Client)
 - **Arrow Keys**: Move gimbal in corresponding direction
+- **Q**: Crane up
+- **E**: Crane down
 - **Space**: Center gimbal
 - **1-9**: Set movement degrees (5-45°)
 - **0**: Get current position
@@ -112,6 +117,9 @@ You can test using any MQTT client (like Mosquitto):
 # Move left 20 degrees
 mosquitto_pub -h YOUR_PI_IP -t "robot/tx" -m '{"type":"gimbal","action":"x_left","degrees":20}'
 
+# Move crane up 15 degrees
+mosquitto_pub -h YOUR_PI_IP -t "robot/tx" -m '{"type":"gimbal","action":"c_up","degrees":15}'
+
 # Center gimbal
 mosquitto_pub -h YOUR_PI_IP -t "robot/tx" -m '{"type":"gimbal","action":"center"}'
 
@@ -123,7 +131,7 @@ mosquitto_pub -h YOUR_PI_IP -t "robot/tx" -m '{"type":"gimbal","action":"positio
 
 #### 1. Servos Not Moving
 - Check power supply (servos need 5V)
-- Verify GPIO pins (12 and 13)
+- Verify GPIO pins (18, 27, 22)
 - Check servo connections
 
 #### 2. MQTT Connection Failed
@@ -144,7 +152,7 @@ python3 mqtt_to_pwm.py --loglevel debug
 ## 📁 File Structure
 ```
 MotorMoving/
-├── mqtt_to_pwm.py          # Enhanced with gimbal support
+├── mqtt_to_pwm.py          # Enhanced with 3-axis gimbal support
 ├── gimbalcode.py           # Your gimbal control logic
 ├── ServoClass.py           # Low-level servo control
 ├── gimbal_remote.py        # Remote control client
@@ -153,7 +161,7 @@ MotorMoving/
 └── GIMBAL_SETUP.md         # This guide
 ```
 
-## 🔄 Integration with Existing System
+## 🔗 Integration with Existing System
 
 Your enhanced `mqtt_to_pwm.py` now handles both motor and gimbal commands:
 
@@ -163,14 +171,14 @@ Your enhanced `mqtt_to_pwm.py` now handles both motor and gimbal commands:
 
 All commands go through the same MQTT topics (`robot/tx` and `robot/rx`).
 
-## 🎯 Next Steps
+## 🚀 Next Steps
 
 1. **Test locally** on Pi with `test_gimbal.py`
 2. **Run enhanced controller** with `python3 mqtt_to_pwm.py`
 3. **Test remote control** from your computer
 4. **Integrate with your GUI** if desired
 
-## 🆘 Need Help?
+## ❓ Need Help?
 
 If you encounter issues:
 1. Check the logs for error messages
@@ -178,4 +186,21 @@ If you encounter issues:
 3. Test with the local test script first
 4. Ensure MQTT broker is running
 
-Your gimbal should now be fully integrated with your existing MQTT infrastructure! 🎉
+Your 3-axis gimbal should now be fully integrated with your existing MQTT infrastructure! 🎉
+
+## 🖥️ Development on Windows
+
+If you're developing on Windows but deploying on Raspberry Pi:
+
+### Install Dependencies for Remote Control
+```bash
+# On Windows (for remote control only)
+pip install pynput paho-mqtt
+```
+
+### Import Errors on Windows
+You'll see import errors for `RPi.GPIO` on Windows - this is normal! The `RPi.GPIO` library only exists on Raspberry Pi hardware.
+
+### Testing Strategy
+1. **On Windows**: Test the remote control client (`gimbal_remote.py`)
+2. **On Raspberry Pi**: Test the full system (`mqtt_to_pwm.py`, `test_gimbal.py`)

@@ -6,7 +6,16 @@ Run this on your computer to control the gimbal on your Raspberry Pi
 import paho.mqtt.client as mqtt
 import json
 import time
-from pynput import keyboard
+try:
+    from pynput import keyboard
+    PYNPUT_AVAILABLE = True
+except ImportError:
+    print("Warning: pynput library not found.")
+    print("Install it with: pip install pynput")
+    print("Note: This is only needed for the remote control client.")
+    print("You can still run this script, but keyboard controls won't work.")
+    PYNPUT_AVAILABLE = False
+    keyboard = None
 
 class GimbalRemote:
     def __init__(self, pi_ip="127.0.1.1"): 
@@ -24,18 +33,18 @@ class GimbalRemote:
         
     def on_connect(self, client, userdata, flags, rc):
         if rc == 0:
-            print(f"✅ Connected to Pi MQTT broker successfully!")
+            print(f"Connected to Pi MQTT broker successfully!")
         else:
-            print(f"❌ Failed to connect to MQTT broker (code: {rc})")
+            print(f"Failed to connect to MQTT broker (code: {rc})")
         
     def on_message(self, client, userdata, msg):
         if msg.topic == "robot/rx":
             try:
                 data = json.loads(msg.payload.decode())
                 if data.get("status") == "gimbal":
-                    print(f"🎯 Gimbal: {data['action']} - {data.get('degrees', '')}°")
+                    print(f" Gimbal: {data['action']} - {data.get('degrees', '')}°")
                 elif data.get("status") == "error":
-                    print(f"❌ Error: {data.get('message', 'Unknown error')}")
+                    print(f" Error: {data.get('message', 'Unknown error')}")
             except json.JSONDecodeError:
                 print(f"📡 Raw message: {msg.payload.decode()}")
     
@@ -48,7 +57,7 @@ class GimbalRemote:
             **kwargs
         }
         self.client.publish("robot/tx", json.dumps(command))
-        print(f"📤 Sent: {action} ({degrees}°)")
+        print(f" Sent: {action} ({degrees}°)")
     
     def on_key_press(self, key):
         """Handle keyboard input"""
@@ -64,17 +73,22 @@ class GimbalRemote:
             elif key == keyboard.Key.space:
                 self.send_gimbal_command("center")
             elif key == keyboard.Key.esc:
-                print("🛑 Exiting...")
+                print("Exiting...")
                 return False
             elif hasattr(key, 'char') and key.char:
                 # Number keys for custom degrees
                 if key.char in '123456789':
                     degrees = int(key.char) * 5  # 5, 10, 15, 20, 25, 30, 35, 40, 45 degrees
-                    print(f"🔢 Set movement to {degrees}°")
+                    print(f"Set movement to {degrees}°")
                     # Store for next movement
                     self.last_degrees = degrees
                 elif key.char == '0':
                     self.send_gimbal_command("position")
+                # Crane controls
+                elif key.char == 'q':
+                    self.send_gimbal_command("c_up")
+                elif key.char == 'e':
+                    self.send_gimbal_command("c_down")
         except AttributeError:
             pass
     
@@ -82,7 +96,16 @@ class GimbalRemote:
         """Start keyboard listener"""
         print("\n🎮 Gimbal Remote Control")
         print("=" * 40)
+        
+        if not PYNPUT_AVAILABLE:
+            print("❌ Keyboard controls not available (pynput not installed)")
+            print("You can still send MQTT commands manually.")
+            print("Install pynput with: pip install pynput")
+            return
+            
         print("Arrow keys: Move gimbal")
+        print("Q: Crane up")
+        print("E: Crane down")
         print("Space: Center gimbal")
         print("1-9: Set movement degrees (5-45°)")
         print("0: Get current position")
@@ -99,7 +122,7 @@ class GimbalRemote:
         self.client.disconnect()
 
 if __name__ == "__main__":
-    # ⚠️ IMPORTANT: Change this to your Raspberry Pi's IP address!
+    #  IMPORTANT: Change this to your Raspberry Pi's IP address!
     PI_IP = "192.168.1.100"  # Change this!
     
     print("🔧 Gimbal Remote Control Setup")
@@ -109,10 +132,10 @@ if __name__ == "__main__":
         remote = GimbalRemote(PI_IP)
         remote.run()
     except KeyboardInterrupt:
-        print("\n🛑 Interrupted by user")
+        print("\n Interrupted by user")
     except Exception as e:
-        print(f"❌ Error: {e}")
-        print("💡 Make sure:")
+        print(f" Error: {e}")
+        print(" Make sure:")
         print("   1. Your Pi is running the updated mqtt_to_pwm.py")
         print("   2. You've changed PI_IP to your Pi's actual IP address")
         print("   3. Your Pi and computer are on the same network")

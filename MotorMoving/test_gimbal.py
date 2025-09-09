@@ -7,72 +7,81 @@ from gimbalcode import GimbalController
 import time
 
 def test_gimbal():
-    print("🎯 Testing Gimbal Controller")
-    print("Pins: X=18, Y=27")
+    print(" Testing Gimbal Controller")
+    print("Pins: X=18, Y=27, C=22")
     print("=" * 30)
     
     try:
         # Initialize gimbal
-        gimbal = GimbalController(x_pin=18, y_pin=27)
-        print("✅ Gimbal initialized successfully")
+        gimbal = GimbalController(x_pin=18, y_pin=27, c_pin=22)
+        print(" Gimbal initialized successfully")
         
         # Get initial position
         pos = gimbal.get_position()
-        print(f"📍 Initial position: X={pos['x']}°, Y={pos['y']}°")
+        print(f" Initial position: X={pos['x']}°, Y={pos['y']}°, C={pos['c']}°")
         
         # Test movements
-        print("\n🔄 Testing movements...")
+        print("\n Testing movements...")
         
         # Test X-axis (left/right)
-        print("➡️ Moving right 20°...")
+        print(" Moving right 20°...")
         gimbal.x_right(20)
         time.sleep(1)
         
-        print("⬅️ Moving left 15°...")
+        print(" Moving left 15°...")
         gimbal.x_left(15)
         time.sleep(1)
         
         # Test Y-axis (up/down)
-        print("⬆️ Moving up 15°...")
+        print(" Moving up 15°...")
         gimbal.y_up(15)
         time.sleep(1)
         
-        print("⬇️ Moving down 10°...")
+        print(" Moving down 10°...")
         gimbal.y_down(10)
+        time.sleep(1)
+
+            # Test Y-axis (up/down)
+        print(" Moving up 15°...")
+        gimbal.c_up(15)
+        time.sleep(1)
+        
+        print(" Moving down 10°...")
+        gimbal.c_down(10)
         time.sleep(1)
         
         # Test specific angles
-        print("🎯 Setting X to 45°...")
+        print(" Setting X to 45°...")
         gimbal.set_x_angle(45)
         time.sleep(1)
         
-        print("🎯 Setting Y to 60°...")
+        print(" Setting Y to 60°...")
         gimbal.set_y_angle(60)
         time.sleep(1)
         
         # Get final position
         pos = gimbal.get_position()
-        print(f"📍 Final position: X={pos['x']}°, Y={pos['y']}°")
+        print(f" Final position: X={pos['x']}°, Y={pos['y']}°")
         
         # Center gimbal
-        print("🎯 Centering gimbal...")
+        print(" Centering gimbal...")
         gimbal.center_gimbal()
         time.sleep(1)
         
         pos = gimbal.get_position()
-        print(f"📍 Centered position: X={pos['x']}°, Y={pos['y']}°")
+        print(f" Centered position: X={pos['x']}°, Y={pos['y']}°")
         
-        print("\n✅ All tests completed successfully!")
+        print("\n All tests completed successfully!")
         
     except Exception as e:
-        print(f"❌ Error during testing: {e}")
+        print(f" Error during testing: {e}")
         import traceback
         traceback.print_exc()
     
     finally:
         try:
             gimbal.cleanup()
-            print("🧹 Gimbal cleaned up")
+            print(" Gimbal cleaned up")
         except:
             pass
 

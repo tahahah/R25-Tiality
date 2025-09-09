@@ -1,4 +1,53 @@
-import RPi.GPIO as GPIO
+try:
+    import RPi.GPIO as GPIO
+    GPIO_AVAILABLE = True
+except ImportError:
+    # Running on non-Pi system (like Windows) - create mock GPIO
+    print("Warning: RPi.GPIO not available. Using mock GPIO for development.")
+    GPIO_AVAILABLE = False
+    
+    class MockGPIO:
+        BCM = 11
+        OUT = 0
+        HIGH = 1
+        LOW = 0
+        
+        @staticmethod
+        def setmode(mode):
+            pass
+            
+        @staticmethod
+        def setup(pin, mode):
+            pass
+            
+        @staticmethod
+        def output(pin, value):
+            pass
+            
+        @staticmethod
+        def cleanup(pin=None):
+            pass
+            
+        @staticmethod
+        def PWM(pin, freq):
+            return MockPWM(pin, freq)
+    
+    class MockPWM:
+        def __init__(self, pin, freq):
+            self.pin = pin
+            self.freq = freq
+            
+        def start(self, duty):
+            pass
+            
+        def ChangeDutyCycle(self, duty):
+            pass
+            
+        def stop(self):
+            pass
+    
+    GPIO = MockGPIO()
+
 from time import sleep
 
 class Servo:
@@ -48,7 +97,7 @@ class Servo:
         self.__angle_conversion_factor = (self.__max_duty_cycle - self.__min_duty_cycle) / (self.max_angle - self.min_angle)
         
         # Setup GPIO for Raspberry Pi - FIX THIS
-        GPIO.setmode(GPIO.BCM)  # ✅ Use BCM numbering (GPIO 18, 27)
+        GPIO.setmode(GPIO.BCM)  # Use BCM numbering (GPIO 18, 27, 22)
         GPIO.setup(pin, GPIO.OUT)
         self.__motor = GPIO.PWM(pin, self.__servo_pwm_freq)
         self.__motor.start(0)  # Start with 0 duty cycle

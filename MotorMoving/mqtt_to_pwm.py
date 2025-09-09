@@ -9,9 +9,12 @@ from typing import List, Tuple, Optional
 import paho.mqtt.client as mqtt
 try:
     import RPi.GPIO as GPIO
-except RuntimeError:
-    # Allow import-time failure messaging when run off-Pi
-    raise
+    GPIO_AVAILABLE = True
+except (ImportError, RuntimeError):
+    # Running on non-Pi system - allow development
+    print("Warning: RPi.GPIO not available. Motor control will not work on this system.")
+    GPIO_AVAILABLE = False
+    GPIO = None
 
 # ---------------- Configuration ----------------
 # BCM pin numbers
@@ -23,6 +26,7 @@ DEFAULT_RAMP_MS = 2000
 # Gimbal configuration - using your specified pins
 GIMBAL_X_PIN = 18  # X-axis servo (left/right)
 GIMBAL_Y_PIN = 27  # Y-axis servo (up/down)
+GIMBAL_C_PIN = 22  # Crane servo (up/down)
 
 # Motor compensation factors for omnidirectional wheels
 # Adjust these values to make the robot move in a straight line
@@ -58,8 +62,11 @@ class Motor:
         self.en_pin = en_pin
         self.in_a = in_a
         self.in_b = in_b
-        self.pwm = GPIO.PWM(en_pin, freq_hz)
-        self.pwm.start(0)
+        if GPIO_AVAILABLE and GPIO:
+            self.pwm = GPIO.PWM(en_pin, freq_hz)
+            self.pwm.start(0)
+        else:
+            self.pwm = None
         self._duty = 0.0
         self._dir = "stop"  # forward | reverse | stop
         self._lock = threading.Lock()
@@ -68,22 +75,24 @@ class Motor:
         # forward -> A=1, B=0; reverse -> A=0, B=1; stop (coast) -> A=0, B=0
         with self._lock:
             self._dir = direction
-            if direction == "forward":
-                GPIO.output(self.in_a, GPIO.HIGH)
-                GPIO.output(self.in_b, GPIO.LOW)
-            elif direction == "reverse":
-                GPIO.output(self.in_a, GPIO.LOW)
-                GPIO.output(self.in_b, GPIO.HIGH)
-            else:  # stop/coast
-                GPIO.output(self.in_a, GPIO.LOW)
-                GPIO.output(self.in_b, GPIO.LOW)
+            if GPIO_AVAILABLE and GPIO:
+                if direction == "forward":
+                    GPIO.output(self.in_a, GPIO.HIGH)
+                    GPIO.output(self.in_b, GPIO.LOW)
+                elif direction == "reverse":
+                    GPIO.output(self.in_a, GPIO.LOW)
+                    GPIO.output(self.in_b, GPIO.HIGH)
+                else:  # stop/coast
+                    GPIO.output(self.in_a, GPIO.LOW)
+                    GPIO.output(self.in_b, GPIO.LOW)
 
     def set_duty(self, duty: float):
         # duty: 0..100
         duty = max(0.0, min(100.0, float(duty)))
         with self._lock:
             self._duty = duty
-            self.pwm.ChangeDutyCycle(duty)
+            if self.pwm:
+                self.pwm.ChangeDutyCycle(duty)
 
     def get_duty(self) -> float:
         with self._lock:
@@ -96,13 +105,14 @@ class Motor:
 
 class MotorController:
     def __init__(self, enable_pins: List[int], motor_pairs: List[Tuple[int, int]], freq_hz: int):
-        GPIO.setmode(GPIO.BCM)
-        # Setup pins
-        for pin in enable_pins:
-            GPIO.setup(pin, GPIO.OUT)
-        for a, b in motor_pairs:
-            GPIO.setup(a, GPIO.OUT)
-            GPIO.setup(b, GPIO.OUT)
+        if GPIO_AVAILABLE and GPIO:
+            GPIO.setmode(GPIO.BCM)
+            # Setup pins
+            for pin in enable_pins:
+                GPIO.setup(pin, GPIO.OUT)
+            for a, b in motor_pairs:
+                GPIO.setup(a, GPIO.OUT)
+                GPIO.setup(b, GPIO.OUT)
 
         self.motors: List[Motor] = [
             Motor(en, a, b, freq_hz) for en, (a, b) in zip(enable_pins, motor_pairs)
@@ -116,7 +126,8 @@ class MotorController:
                 m.stop()
             except Exception:
                 pass
-        GPIO.cleanup()
+        if GPIO_AVAILABLE and GPIO:
+            GPIO.cleanup()
 
     def set_all(self, direction: str, speed: float):
         # Apply compensation factors for each motor based on direction
@@ -222,12 +233,12 @@ class MotorController:
 class GimbalController:
     """Gimbal controller using your existing gimbalcode.py"""
     
-    def __init__(self, x_pin=GIMBAL_X_PIN, y_pin=GIMBAL_Y_PIN):
+    def __init__(self, x_pin=GIMBAL_X_PIN, y_pin=GIMBAL_Y_PIN, c_pin=GIMBAL_C_PIN):
         """Initialize gimbal controller with specified pins"""
         try:
             from gimbalcode import GimbalController as GimbalCode
-            self.gimbal = GimbalCode(x_pin=x_pin, y_pin=y_pin)
-            logging.info(f"Gimbal initialized on pins X:{x_pin}, Y:{y_pin}")
+            self.gimbal = GimbalCode(x_pin=x_pin, y_pin=y_pin, c_pin=c_pin)
+            logging.info(f"Gimbal initialized on pins X:{x_pin}, Y:{y_pin}, C:{c_pin}")
         except ImportError as e:
             logging.error(f"Failed to import gimbalcode: {e}")
             self.gimbal = None
@@ -257,6 +268,12 @@ class GimbalController:
             elif action == "y_down":
                 self.gimbal.y_down(degrees)
                 client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "y_down", "degrees": degrees}))
+            elif action == "c_up":
+                self.gimbal.c_up(degrees)
+                client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "c_up", "degrees": degrees}))
+            elif action == "c_down":
+                self.gimbal.c_down(degrees)
+                client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "c_down", "degrees": degrees}))
             elif action == "center":
                 self.gimbal.center_gimbal()
                 client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "center"}))
@@ -266,11 +283,14 @@ class GimbalController:
             elif action == "set_angle":
                 x_angle = cmd.get("x_angle")
                 y_angle = cmd.get("y_angle")
+                c_angle = cmd.get("c_angle")
                 if x_angle is not None:
                     self.gimbal.set_x_angle(x_angle)
                 if y_angle is not None:
                     self.gimbal.set_y_angle(y_angle)
-                client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "set_angle", "x": x_angle, "y": y_angle}))
+                if c_angle is not None:
+                    self.gimbal.set_c_angle(c_angle)
+                client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "set_angle", "x": x_angle, "y": y_angle, "c": c_angle}))
             else:
                 client.publish(RX_TOPIC, json.dumps({"status": "error", "message": f"Unknown gimbal action: {action}"}))
                 
