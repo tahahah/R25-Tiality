@@ -29,12 +29,15 @@ class VideoStreamingServicer(video_streaming_pb2_grpc.VideoStreamingServicer):
         """
         print("Client connected and started streaming.")
         
+
         try:
             # Iterate over the incoming stream of video frames from the client.
             for video_frame in request_iterator:
                 if not self.shutdown_event.is_set():
                     # This is the raw byte data of the frame.
                     frame_data = video_frame.frame_data
+
+                    # TODO: Implement Load Balancer
 
                     # Use a "dumping" pattern on the queue to ensure it only holds
                     # the single most recent frame.

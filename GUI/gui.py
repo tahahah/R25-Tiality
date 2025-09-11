@@ -77,7 +77,8 @@ class ExplorerGUI:
     def __init__(
         self, 
         background_image_path: str, 
-        command_callback: Optional[Callable[[str], None]] = None
+        command_callback: Optional[Callable[[str], None]] = None,
+        sim: bool = False
     ):
         """
         Args:
@@ -88,6 +89,7 @@ class ExplorerGUI:
         pygame.init()
         self.config = GuiConfig()
         self.colours = Colour()
+        self.sim = sim
         
         # Setup display and resources
         self._load_background(background_image_path)

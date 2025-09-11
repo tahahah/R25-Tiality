@@ -31,18 +31,8 @@ class CameraVideoTrack(VideoStreamTrack):
             self.picam.start()
             logging.info("Pi Camera initialized successfully with picamera2")
         except Exception as e:
-            logging.warning(f"Failed to initialize Pi Camera: {e}")
-            logging.info("Falling back to USB camera")
-            self.picam = None
-            self.cap = cv2.VideoCapture(0)
-            if not self.cap.isOpened():
-                raise RuntimeError("Could not open camera /dev/video0")
-            
-            # Set camera properties for better performance
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            self.cap.set(cv2.CAP_PROP_FPS, 30)
-            logging.info("USB Camera initialized successfully")
+            logging.warning(f"Failed to initialize Pi Camera: {e}\nTrying again in 2 seconds")
+            time.sleep(2)
 
     async def recv(self):
         """Capture frame from camera and return as WebRTC frame."""
