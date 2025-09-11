@@ -107,6 +107,7 @@ class MotorController:
     def __init__(self, enable_pins: List[int], motor_pairs: List[Tuple[int, int]], freq_hz: int):
         if GPIO_AVAILABLE and GPIO:
             GPIO.setmode(GPIO.BCM)
+            GPIO.setwarnings(False)  # Suppress GPIO warnings
             # Setup pins
             for pin in enable_pins:
                 GPIO.setup(pin, GPIO.OUT)

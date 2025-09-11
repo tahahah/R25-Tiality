@@ -12,10 +12,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Function to clean up background processes on exit
 cleanup() {
     echo "\nShutting down services..."
-    if [ -n "$VIDEO_PID" ]; then
-        kill $VIDEO_PID
-        echo "WebRTC video server (PID: $VIDEO_PID) stopped."
-    fi
     if [ -n "$MOSQUITTO_PID" ]; then
         kill $MOSQUITTO_PID
         echo "Mosquitto broker (PID: $MOSQUITTO_PID) stopped."
@@ -84,15 +80,12 @@ mosquitto -c /tmp/mosquitto.conf -d
 MOSQUITTO_PID=$(pgrep mosquitto)
 echo "Mosquitto broker started with PID $MOSQUITTO_PID."
 
-# Start WebRTC video server in the background
-echo "Starting WebRTC video server..."
-python3 "$SCRIPT_DIR/webrtc_server.py" &
-VIDEO_PID=$!
-echo "WebRTC video server started with PID $VIDEO_PID."
+# WebRTC video server not needed for gimbal control
+echo "Skipping WebRTC video server (not needed for gimbal control)"
 
 # Start MQTT->PWM controller in the foreground (it will block here)
 echo "Starting MQTT->PWM controller... (Press Ctrl+C to stop all)"
 python3 "$SCRIPT_DIR/mqtt_to_pwm.py" --broker "localhost"
 
 # The script will only reach here if the mqtt bridge exits without Ctrl+C
-wait $VIDEO_PID
+echo "MQTT->PWM controller stopped."

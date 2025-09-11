@@ -129,9 +129,8 @@ class GimbalController:
         """Get current X and Y, and C positions"""
         return {
             'x': self.x_servo.get_current_angle(),
-            'y': self.y_servo.get_current_angle()
+            'y': self.y_servo.get_current_angle(),
             'c': self.c_servo.get_current_angle()
-            
         }
         
     def cleanup(self):

@@ -41,7 +41,7 @@ def test_gimbal():
         gimbal.y_down(10)
         time.sleep(1)
 
-            # Test Y-axis (up/down)
+            # Test Crane (up/down)
         print(" Moving up 15°...")
         gimbal.c_up(15)
         time.sleep(1)
@@ -61,7 +61,7 @@ def test_gimbal():
         
         # Get final position
         pos = gimbal.get_position()
-        print(f" Final position: X={pos['x']}°, Y={pos['y']}°")
+        print(f" Final position: X={pos['x']}°, Y={pos['y']}°, C={pos['c']}°")
         
         # Center gimbal
         print(" Centering gimbal...")
@@ -69,7 +69,7 @@ def test_gimbal():
         time.sleep(1)
         
         pos = gimbal.get_position()
-        print(f" Centered position: X={pos['x']}°, Y={pos['y']}°")
+        print(f" Centered position: X={pos['x']}°, Y={pos['y']}°, C={pos['c']}°")
         
         print("\n All tests completed successfully!")
         
