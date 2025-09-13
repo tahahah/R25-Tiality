@@ -10,7 +10,7 @@ from gui_mqtt_client import GuiMqttClient
 motor_moving_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'MotorMoving')
 if motor_moving_path not in sys.path:
     sys.path.append(motor_moving_path)
-from config import PI_IP
+from config import PI_IP, DEFAULT_GIMBAL_DEGREES
 
 # Configure logging
 logging.basicConfig(
@@ -57,6 +57,11 @@ class ExplorerGUI:
         # Setup callback and timing
         self.command_callback = command_callback
         self.clock = pygame.time.Clock()
+        
+        # Command throttling for 2Hz (500ms between commands)
+        self.last_command_time = 0
+        self.command_interval = 500  # milliseconds (2Hz = 1000ms/2 = 500ms)
+        self.last_sent_command = None
         
         # Setup MQTT client
         self.mqtt_client = GuiMqttClient(pi_ip)
@@ -148,6 +153,9 @@ class ExplorerGUI:
         # Handle different command types via MQTT
         if command.startswith('GIMBAL_'):
             self._send_gimbal_mqtt_command(command)
+        elif command.startswith('MOVE_'):
+            # Handle movement commands like MOVE_LEFT, MOVE_UP, etc.
+            self._handle_move_command(command)
         elif command in ['UP', 'DOWN', 'LEFT', 'RIGHT']:
             self._send_movement_command(command)
         elif command == 'STOP':
@@ -196,6 +204,26 @@ class ExplorerGUI:
         
         self.mqtt_client.send_motor_command(vx, vy, 0)
 
+    def _handle_move_command(self, command: str) -> None:
+        """Handle MOVE commands like MOVE_LEFT, MOVE_UP_RIGHT, etc."""
+        # Remove 'MOVE_' prefix and split by '_'
+        directions = command[5:].split('_')
+        
+        vx, vy = 0, 0
+        
+        for direction in directions:
+            if direction == "UP":
+                vy += 50
+            elif direction == "DOWN":
+                vy -= 50
+            elif direction == "LEFT":
+                vx -= 50
+            elif direction == "RIGHT":
+                vx += 50
+        
+        # Send the combined movement command
+        self.mqtt_client.send_motor_command(vx, vy, 0)
+
     def set_connection_status(self, status: ConnectionStatus) -> None:
         """TODO: Set connection for GUI idk if you want to open a socket and send over on a port"""
         self.connection_status = status
@@ -219,13 +247,27 @@ class ExplorerGUI:
         ]
 
     def handle_movement(self) -> None:
-        """Process current movement key states and send commands."""
+        """Process current movement key states and send commands with throttling."""
+        current_time = pygame.time.get_ticks()
+        
+        # Check if enough time has passed since last command (2Hz throttling)
+        if current_time - self.last_command_time < self.command_interval:
+            return
+        
         active_movements = self._get_active_movements()
         
         if active_movements:
             # Build movement command from active directions
             command = 'MOVE_' + '_'.join(active_movements)
+        else:
+            # Send stop command when no keys are pressed
+            command = 'STOP'
+        
+        # Only send command if it's different from the last one
+        if command != self.last_sent_command:
             self.send_command(command)
+            self.last_command_time = current_time
+            self.last_sent_command = command
 
     # ============================================================================
     # DRAWING METHODS
@@ -324,7 +366,6 @@ class ExplorerGUI:
     def show_help(self) -> None:
         """Display help overlay and wait for user input."""
         self._draw_help_overlay()
-        self._draw_help_text()
         pygame.display.flip()
         self._wait_for_keypress()
 
@@ -428,7 +469,7 @@ class ExplorerGUI:
         
         if event.key in gimbal_commands:
             action = gimbal_commands[event.key]
-            degrees = 10  # Default movement amount
+            degrees = DEFAULT_GIMBAL_DEGREES  # Use config value (2 degrees)
             
             # Send MQTT gimbal command
             gimbal_command = {
@@ -464,7 +505,7 @@ class ExplorerGUI:
                 self.send_command('ARM_RAISE')
             else:
                 # Arm is raised - X now controls crane up
-                self.send_command('GIMBAL_C_UP_10')
+                self.send_command(f'GIMBAL_C_UP_{DEFAULT_GIMBAL_DEGREES}')
                 
         elif key == pygame.K_c:
             if self.arm_state == ArmState.LOWERED:
@@ -472,7 +513,7 @@ class ExplorerGUI:
                 pass  
             else:
                 # Arm is raised - C controls crane down
-                self.send_command('GIMBAL_C_DOWN_10')
+                self.send_command(f'GIMBAL_C_DOWN_{DEFAULT_GIMBAL_DEGREES}')
                 
         # Add way to lower arm (maybe hold shift + C or new key)
         # Or add automatic lowering after inactivity

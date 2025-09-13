@@ -18,10 +18,10 @@ MQTT_TIMEOUT = 5
 DEFAULT_BACKGROUND_IMAGE = "wildlife_explorer.png"
 
 # Motor Settings
-DEFAULT_GIMBAL_DEGREES = 10
+DEFAULT_GIMBAL_DEGREES = 2
 DEFAULT_MOTOR_SPEED = 0.5
 
 # Gimbal Pin Configuration
-GIMBAL_PIN_X = 18  # X-axis servo pin
-GIMBAL_PIN_Y = 22  # Y-axis servo pin  
-GIMBAL_PIN_C = 27  # C-axis servo pin
+GIMBAL_PIN_X = 27  # X-axis servo pin (left/right)
+GIMBAL_PIN_Y = 22  # Y-axis servo pin (up/down)
+GIMBAL_PIN_C = 18  # C-axis servo pin
