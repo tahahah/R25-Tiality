@@ -247,7 +247,7 @@ class ExplorerGUI:
         ]
 
     def handle_movement(self) -> None:
-        """Process current movement key states and send commands with throttling."""
+        """Process current movement key states and send gimbal commands with throttling."""
         current_time = pygame.time.get_ticks()
         
         # Check if enough time has passed since last command (2Hz throttling)
@@ -257,17 +257,23 @@ class ExplorerGUI:
         active_movements = self._get_active_movements()
         
         if active_movements:
-            # Build movement command from active directions
-            command = 'MOVE_' + '_'.join(active_movements)
-        else:
-            # Send stop command when no keys are pressed
-            command = 'STOP'
-        
-        # Only send command if it's different from the last one
-        if command != self.last_sent_command:
-            self.send_command(command)
-            self.last_command_time = current_time
-            self.last_sent_command = command
+            # Convert movement directions to gimbal commands
+            for direction in active_movements:
+                if direction == "UP":
+                    command = f'GIMBAL_Y_UP_{DEFAULT_GIMBAL_DEGREES}'
+                elif direction == "DOWN":
+                    command = f'GIMBAL_Y_DOWN_{DEFAULT_GIMBAL_DEGREES}'
+                elif direction == "LEFT":
+                    command = f'GIMBAL_X_LEFT_{DEFAULT_GIMBAL_DEGREES}'
+                elif direction == "RIGHT":
+                    command = f'GIMBAL_X_RIGHT_{DEFAULT_GIMBAL_DEGREES}'
+                
+                # Only send command if it's different from the last one
+                if command != self.last_sent_command:
+                    self.send_command(command)
+                    self.last_command_time = current_time
+                    self.last_sent_command = command
+                    break  # Only send one command at a time
 
     # ============================================================================
     # DRAWING METHODS
@@ -370,33 +376,19 @@ class ExplorerGUI:
         self._wait_for_keypress()
 
     def _draw_help_overlay(self) -> None:
-        """Draw help overlay with context-aware instructions"""
-        if self.is_gimbal_mode:
-            help_lines = [
-                "GIMBAL CONTROL MODE (Arm Raised):",
-                "  Arrow Keys / WASD - Control gimbal X/Y",
-                "  X - Crane up", 
-                "  C - Crane down",
-                "  Space - Emergency stop",
-                "  1, 2 - Toggle cameras",
-                "  H - Show/hide this help",
-                "  ESC - Exit",
-                "",
-                "Lower arm to return to car control",
-                "Press any key to close help"
-            ]
-        else:
-            help_lines = [
-                "CAR CONTROL MODE (Arm Lowered):",
-                "  Arrow Keys / WASD - Move car",
-                "  X - Raise arm (enables gimbal control)",
-                "  Space - Emergency stop", 
-                "  1, 2 - Toggle cameras",
-                "  H - Show/hide this help",
-                "  ESC - Exit",
-                "",
-                "Press any key to close help"
-            ]
+        """Draw help overlay with gimbal control instructions"""
+        help_lines = [
+            "GIMBAL CONTROL:",
+            "  Arrow Keys / WASD - Control gimbal X/Y (2° steps)",
+            "  X - Raise arm (PIN_C up)", 
+            "  C - Lower arm (PIN_C down)",
+            "  Space - Emergency stop",
+            "  1, 2 - Toggle cameras",
+            "  H - Show/hide this help",
+            "  ESC - Exit",
+            "",
+            "Press any key to close help"
+        ]
         
         starting_y = 150
         line_spacing = 40
@@ -442,14 +434,9 @@ class ExplorerGUI:
     # ============================================================================
 
     def _handle_movement_keys(self, event: pygame.event.Event, is_key_pressed: bool) -> None:
-        """Handle movement keys - now context-aware for car vs gimbal"""
-        
-        if self.is_gimbal_mode:
-            # GIMBAL CONTROL MODE
-            self._handle_gimbal_keys(event, is_key_pressed)
-        else:
-            # CAR CONTROL MODE (existing logic)
-            self._handle_car_movement_keys(event, is_key_pressed)
+        """Handle movement keys - track state for continuous gimbal control"""
+        # Update movement key states for continuous control
+        self._handle_car_movement_keys(event, is_key_pressed)
     
     def _handle_gimbal_keys(self, event: pygame.event.Event, is_key_pressed: bool) -> None:
         """Handle gimbal control when arm is raised"""
@@ -497,26 +484,13 @@ class ExplorerGUI:
             self.movement_keys[direction] = is_key_pressed
     
     def _handle_arm_control(self, key: int) -> None:
-        """Enhanced arm control with crane functionality"""
+        """Control arm (PIN_C) up and down"""
         if key == pygame.K_x:
-            if self.arm_state == ArmState.LOWERED:
-                # Raise the arm (switch to gimbal mode)
-                self.arm_state = ArmState.RAISED
-                self.send_command('ARM_RAISE')
-            else:
-                # Arm is raised - X now controls crane up
-                self.send_command(f'GIMBAL_C_UP_{DEFAULT_GIMBAL_DEGREES}')
-                
+            # X raises the arm (PIN_C up)
+            self.send_command(f'GIMBAL_C_UP_{DEFAULT_GIMBAL_DEGREES}')
         elif key == pygame.K_c:
-            if self.arm_state == ArmState.LOWERED:
-                # This shouldn't happen, but handle gracefully
-                pass  
-            else:
-                # Arm is raised - C controls crane down
-                self.send_command(f'GIMBAL_C_DOWN_{DEFAULT_GIMBAL_DEGREES}')
-                
-        # Add way to lower arm (maybe hold shift + C or new key)
-        # Or add automatic lowering after inactivity
+            # C lowers the arm (PIN_C down)
+            self.send_command(f'GIMBAL_C_DOWN_{DEFAULT_GIMBAL_DEGREES}')
 
     def _handle_function_keys(self, event: pygame.event.Event) -> None:
         """Enhanced function key handling"""
@@ -532,11 +506,6 @@ class ExplorerGUI:
             self._handle_camera_toggle(key)
         elif key in (pygame.K_x, pygame.K_c):
             self._handle_arm_control(key)
-        elif key == pygame.K_r:  # New: R key to return to car mode
-            if self.arm_state == ArmState.RAISED:
-                self.arm_state = ArmState.LOWERED
-                self.send_command('ARM_LOWER')
-                logger.info("Returned to car control mode")
 
     def _handle_camera_toggle(self, key: int) -> None:
         camera_index = 0 if key == pygame.K_1 else 1
