@@ -246,6 +246,16 @@ class GimbalController:
         except Exception as e:
             logging.error(f"Failed to initialize gimbal: {e}")
             self.gimbal = None
+            # Try to clean up and retry once
+            try:
+                if GPIO_AVAILABLE and GPIO:
+                    GPIO.cleanup()
+                    logging.info("GPIO cleaned up, retrying gimbal initialization...")
+                    self.gimbal = GimbalCode(x_pin=x_pin, y_pin=y_pin, c_pin=c_pin)
+                    logging.info(f"Gimbal initialized successfully on retry")
+            except Exception as retry_e:
+                logging.error(f"Gimbal initialization failed on retry: {retry_e}")
+                self.gimbal = None
     
     def handle_command(self, cmd: dict, client: mqtt.Client):
         """Handle gimbal commands"""

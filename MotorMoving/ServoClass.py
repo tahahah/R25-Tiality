@@ -96,8 +96,18 @@ class Servo:
         self.current_angle = -0.001
         self.__angle_conversion_factor = (self.__max_duty_cycle - self.__min_duty_cycle) / (self.max_angle - self.min_angle)
         
-        # Setup GPIO for Raspberry Pi - FIX THIS
-        GPIO.setmode(GPIO.BCM)  # Use BCM numbering (GPIO 18, 27, 22)
-        GPIO.setup(pin, GPIO.OUT)
-        self.__motor = GPIO.PWM(pin, self.__servo_pwm_freq)
-        self.__motor.start(0)  # Start with 0 duty cycle
+        # Setup GPIO for Raspberry Pi
+        if GPIO_AVAILABLE:
+            try:
+                # Only set mode if not already set
+                GPIO.setmode(GPIO.BCM)  # Use BCM numbering (GPIO 18, 27, 22)
+                GPIO.setup(pin, GPIO.OUT)
+                self.__motor = GPIO.PWM(pin, self.__servo_pwm_freq)
+                self.__motor.start(0)  # Start PWM with 0% duty cycle
+            except Exception as e:
+                print(f"Warning: Failed to initialize servo on pin {pin}: {e}")
+                # Create a mock PWM object for development
+                self.__motor = MockPWM(pin, self.__servo_pwm_freq)
+        else:
+            # Use mock PWM for development
+            self.__motor = MockPWM(pin, self.__servo_pwm_freq)
