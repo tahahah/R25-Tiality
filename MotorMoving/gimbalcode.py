@@ -26,8 +26,7 @@ class GimbalController:
         self.x_servo = Servo(x_pin)  # X-axis (left/right)
         self.y_servo = Servo(y_pin)  # Y-axis (up/down)
         self.c_servo = Servo(c_pin)  # Crane servo (up/down)
-        # Center both servos at startup
-        self.center_gimbal()
+        # Note: Servos start at 0 degrees by default, no automatic centering
         
     def x_left(self, degrees=10):
         """
