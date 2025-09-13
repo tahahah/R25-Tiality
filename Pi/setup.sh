@@ -35,19 +35,9 @@ echo "--- Installing system packages ---"
 # Update system first
 sudo apt update
 
-# Install Mosquitto if not already installed
-if ! command -v mosquitto &> /dev/null; then
-    echo "Installing Mosquitto MQTT broker..."
-    sudo apt install -y mosquitto mosquitto-clients
-fi
-
 # Install required system packages
 echo "Installing required system packages..."
 sudo apt install -y python3-picamera2 python3-opencv python3-numpy --no-install-recommends
-
-# Ensure Mosquitto is enabled but not started as a service (we'll run it manually)
-sudo systemctl stop mosquitto 2>/dev/null || true
-sudo systemctl disable mosquitto 2>/dev/null || true
 
 echo "--- Setting up Python environment ---"
 # Remove existing venv to ensure --system-site-packages takes effect
@@ -71,28 +61,28 @@ else
 fi
 
 # Install only the packages we need, avoiding opencv and numpy conflicts
-pip install paho-mqtt pyserial RPi.GPIO aiortc av
+pip install paho-mqtt pyserial RPi.GPIO aiortc av grpcio grpcio-tools numpy protobuf pillow pygame
 
 echo "--- Starting services ---"
 
-# Start Mosquitto broker in the background with external access
-echo "Starting local Mosquitto MQTT broker with external access..."
-# Create a temporary config file
-echo "listener 1883 0.0.0.0" > /tmp/mosquitto.conf
-echo "allow_anonymous true" >> /tmp/mosquitto.conf
-mosquitto -c /tmp/mosquitto.conf -d
-MOSQUITTO_PID=$(pgrep mosquitto)
-echo "Mosquitto broker started with PID $MOSQUITTO_PID."
 
-# Start WebRTC video server in the background
-echo "Starting WebRTC video server..."
-python3 "$SCRIPT_DIR/webrtc_server.py" &
+# Start Pi Video Manager in the background
+echo "Starting Pi Video Manager..."
+python3 "$SCRIPT_DIR/tiality_manager.py" --broker "10.1.1.78:50051" &
 VIDEO_PID=$!
-echo "WebRTC video server started with PID $VIDEO_PID."
+echo "Pi Video Manager started with PID $VIDEO_PID."
 
-# Start MQTT->PWM controller in the foreground (it will block here)
-echo "Starting MQTT->PWM controller... (Press Ctrl+C to stop all)"
-python3 "$SCRIPT_DIR/mqtt_to_pwm.py" --broker "localhost"
+# Start Pi Video Viewer in the background
+
+# # Start WebRTC video server in the background
+# echo "Starting WebRTC video server..."
+# python3 "$SCRIPT_DIR/webrtc_server.py" &
+# VIDEO_PID=$!
+# echo "WebRTC video server started with PID $VIDEO_PID."
+
+# # Start MQTT->PWM controller in the foreground (it will block here)
+# echo "Starting MQTT->PWM controller... (Press Ctrl+C to stop all)"
+# python3 "$SCRIPT_DIR/mqtt_to_pwm.py" --broker "localhost"
 
 # The script will only reach here if the mqtt bridge exits without Ctrl+C
 wait $VIDEO_PID
