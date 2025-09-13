@@ -46,11 +46,12 @@ sudo systemctl stop mosquitto 2>/dev/null || true
 sudo systemctl disable mosquitto 2>/dev/null || true
 
 echo "--- Setting up Python environment ---"
+
 # Remove existing venv to ensure --system-site-packages takes effect
-if [ -d "$SCRIPT_DIR/../.venv" ]; then
-    echo "Removing existing virtual environment to recreate with system packages..."
-    rm -rf "$SCRIPT_DIR/../.venv"
-fi
+##if [ -d "$SCRIPT_DIR/../.venv" ]; then
+#     echo "Removing existing virtual environment to recreate with system packages..."
+#     rm -rf "$SCRIPT_DIR/../.venv"
+# fi
 
 # Create new venv with system site packages
 python3 -m venv "$SCRIPT_DIR/../.venv" --system-site-packages

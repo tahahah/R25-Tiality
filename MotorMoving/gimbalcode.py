@@ -4,18 +4,23 @@
 Uses ServoClass.py for motor control
 Controls X-axis (left/right) and Y-axis (up/down) using SG90 servos
 """
+import sys
+import os
 from ServoClass import Servo
 from time import sleep
 
+# Import config from same directory
+from config import GIMBAL_PIN_X, GIMBAL_PIN_Y, GIMBAL_PIN_C
+
 class GimbalController:
-    def __init__(self, x_pin=18, y_pin=27, c_pin=22):
+    def __init__(self, x_pin=GIMBAL_PIN_X, y_pin=GIMBAL_PIN_Y, c_pin=GIMBAL_PIN_C):
         """
         Initialize 3-axis gimbal controller
         
         Args:
-            x_pin (int): GPIO pin for X-axis servo (left/right) - default: 18 
-            y_pin (int): GPIO pin for Y-axis servo (up/down) - default: 27 
-            c_pin (int): GPIO pin for crane servo (up/down) - default: 22
+            x_pin (int): GPIO pin for X-axis servo (left/right) - default from config
+            y_pin (int): GPIO pin for Y-axis servo (up/down) - default from config
+            c_pin (int): GPIO pin for crane servo (up/down) - default from config
         """
         # Initialize both servos
         self.x_servo = Servo(x_pin)  # X-axis (left/right)

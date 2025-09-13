@@ -1,9 +1,16 @@
 import pygame
 import sys
 import logging
+import os
 from typing import Callable, Optional, List
 from gui_config import ConnectionStatus, ArmState, Colour, GuiConfig
 from gui_mqtt_client import GuiMqttClient
+
+# Add MotorMoving directory to path to import config
+motor_moving_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'MotorMoving')
+if motor_moving_path not in sys.path:
+    sys.path.append(motor_moving_path)
+from config import PI_IP
 
 # Configure logging
 logging.basicConfig(
@@ -24,7 +31,7 @@ class ExplorerGUI:
     def __init__(
         self, 
         background_image_path: str, 
-        pi_ip: str = "172.20.10.11",
+        pi_ip: str = PI_IP,
         command_callback: Optional[Callable[[str], None]] = None
     ):
         """
@@ -582,8 +589,7 @@ if __name__ == "__main__":
     def command_callback(command: str) -> None:
         logger.info(f"GUI Command: {command}")
     
-    # Configure Pi IP address
-    PI_IP = "192.168.1.100"  # Change this to your Pi's IP address
+    # Pi IP address is now configured in config.py
     
     try:
         gui = ExplorerGUI(image_path, PI_IP, command_callback)

@@ -4,9 +4,14 @@ import json
 import logging
 import threading
 import time
+import sys
+import os
 from typing import List, Tuple, Optional
 
 import paho.mqtt.client as mqtt
+
+# Import config from same directory
+from config import PI_IP, MQTT_TOPIC_TX, MQTT_TOPIC_RX, PI_MQTT_PORT, GIMBAL_PIN_X, GIMBAL_PIN_Y, GIMBAL_PIN_C
 try:
     import RPi.GPIO as GPIO
     GPIO_AVAILABLE = True
@@ -23,10 +28,7 @@ INPUT_PINS: List[int] = [2, 3, 4, 17, 6, 13, 5, 11]  # 8 pins -> 4 pairs
 PWM_FREQUENCY_HZ = 1000
 DEFAULT_RAMP_MS = 2000
 
-# Gimbal configuration - using your specified pins
-GIMBAL_X_PIN = 18  # X-axis servo (left/right)
-GIMBAL_Y_PIN = 27  # Y-axis servo (up/down)
-GIMBAL_C_PIN = 22  # Crane servo (up/down)
+# Gimbal configuration is now imported from config.py
 
 # Motor compensation factors for omnidirectional wheels
 # Adjust these values to make the robot move in a straight line
@@ -43,9 +45,7 @@ MOTOR_COMPENSATION = {
 MOTOR_ORDER = [0, 1, 2, 3]
 MOTOR_POLARITY = [1, 1, 1, 1]
 
-MQTT_BROKER_HOST = "localhost"
-TX_TOPIC = "robot/tx"
-RX_TOPIC = "robot/rx"
+# MQTT configuration is now imported from config.py
 
 assert len(INPUT_PINS) == 8, "Expect 8 input pins (2 per motor)"
 MOTOR_PAIRS: List[Tuple[int, int]] = [
@@ -234,7 +234,7 @@ class MotorController:
 class GimbalController:
     """Gimbal controller using your existing gimbalcode.py"""
     
-    def __init__(self, x_pin=GIMBAL_X_PIN, y_pin=GIMBAL_Y_PIN, c_pin=GIMBAL_C_PIN):
+    def __init__(self, x_pin=GIMBAL_PIN_X, y_pin=GIMBAL_PIN_Y, c_pin=GIMBAL_PIN_C):
         """Initialize gimbal controller with specified pins"""
         try:
             from gimbalcode import GimbalController as GimbalCode
@@ -250,7 +250,7 @@ class GimbalController:
     def handle_command(self, cmd: dict, client: mqtt.Client):
         """Handle gimbal commands"""
         if not self.gimbal:
-            client.publish(RX_TOPIC, json.dumps({"status": "error", "message": "Gimbal not initialized"}))
+            client.publish(MQTT_TOPIC_RX, json.dumps({"status": "error", "message": "Gimbal not initialized"}))
             return
             
         action = cmd.get("action", "")
@@ -259,28 +259,28 @@ class GimbalController:
         try:
             if action == "x_left":
                 self.gimbal.x_left(degrees)
-                client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "x_left", "degrees": degrees}))
+                client.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "x_left", "degrees": degrees}))
             elif action == "x_right":
                 self.gimbal.x_right(degrees)
-                client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "x_right", "degrees": degrees}))
+                client.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "x_right", "degrees": degrees}))
             elif action == "y_up":
                 self.gimbal.y_up(degrees)
-                client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "y_up", "degrees": degrees}))
+                client.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "y_up", "degrees": degrees}))
             elif action == "y_down":
                 self.gimbal.y_down(degrees)
-                client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "y_down", "degrees": degrees}))
+                client.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "y_down", "degrees": degrees}))
             elif action == "c_up":
                 self.gimbal.c_up(degrees)
-                client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "c_up", "degrees": degrees}))
+                client.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "c_up", "degrees": degrees}))
             elif action == "c_down":
                 self.gimbal.c_down(degrees)
-                client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "c_down", "degrees": degrees}))
+                client.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "c_down", "degrees": degrees}))
             elif action == "center":
                 self.gimbal.center_gimbal()
-                client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "center"}))
+                client.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "center"}))
             elif action == "position":
                 pos = self.gimbal.get_position()
-                client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "position", "position": pos}))
+                client.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "position", "position": pos}))
             elif action == "set_angle":
                 x_angle = cmd.get("x_angle")
                 y_angle = cmd.get("y_angle")
@@ -291,13 +291,13 @@ class GimbalController:
                     self.gimbal.set_y_angle(y_angle)
                 if c_angle is not None:
                     self.gimbal.set_c_angle(c_angle)
-                client.publish(RX_TOPIC, json.dumps({"status": "gimbal", "action": "set_angle", "x": x_angle, "y": y_angle, "c": c_angle}))
+                client.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "set_angle", "x": x_angle, "y": y_angle, "c": c_angle}))
             else:
-                client.publish(RX_TOPIC, json.dumps({"status": "error", "message": f"Unknown gimbal action: {action}"}))
+                client.publish(MQTT_TOPIC_RX, json.dumps({"status": "error", "message": f"Unknown gimbal action: {action}"}))
                 
         except Exception as e:
             logging.error(f"Error handling gimbal command: {e}")
-            client.publish(RX_TOPIC, json.dumps({"status": "error", "message": str(e)}))
+            client.publish(MQTT_TOPIC_RX, json.dumps({"status": "error", "message": str(e)}))
     
     def cleanup(self):
         """Clean up gimbal resources"""
@@ -351,7 +351,7 @@ def handle_command(ctrl: MotorController, gimbal_ctrl: GimbalController, cmd: di
     
     if action == "stop":
         ctrl.stop_all()
-        client.publish(RX_TOPIC, json.dumps({"status": "stopped"}))
+        client.publish(MQTT_TOPIC_RX, json.dumps({"status": "stopped"}))
         return
 
     if t == "all":
@@ -360,13 +360,13 @@ def handle_command(ctrl: MotorController, gimbal_ctrl: GimbalController, cmd: di
             target = float(cmd.get("target", 100))
             ramp_ms = int(cmd.get("ramp_ms", DEFAULT_RAMP_MS))
             ctrl.spool_all(direction, target, ramp_ms)
-            client.publish(RX_TOPIC, json.dumps({"status": "spooling", "direction": direction, "target": target, "ramp_ms": ramp_ms}))
+            client.publish(MQTT_TOPIC_RX, json.dumps({"status": "spooling", "direction": direction, "target": target, "ramp_ms": ramp_ms}))
             return
         if action == "set":
             direction = cmd.get("direction", "forward")
             speed = float(cmd.get("speed", 0))
             ctrl.set_all(direction, speed)
-            client.publish(RX_TOPIC, json.dumps({"status": "set", "direction": direction, "speed": speed}))
+            client.publish(MQTT_TOPIC_RX, json.dumps({"status": "set", "direction": direction, "speed": speed}))
             return
     elif t == "vector":
         if action == "set":
@@ -374,7 +374,7 @@ def handle_command(ctrl: MotorController, gimbal_ctrl: GimbalController, cmd: di
             vy = float(cmd.get("vy", 0))
             omega = float(cmd.get("w", cmd.get("omega", 0)))
             ctrl.set_vector(vx, vy, omega)
-            client.publish(RX_TOPIC, json.dumps({"status": "vector_set", "vx": vx, "vy": vy, "w": omega}))
+            client.publish(MQTT_TOPIC_RX, json.dumps({"status": "vector_set", "vx": vx, "vy": vy, "w": omega}))
             return
     
     elif t == "config":
@@ -385,14 +385,14 @@ def handle_command(ctrl: MotorController, gimbal_ctrl: GimbalController, cmd: di
                 # Update the compensation factors
                 MOTOR_COMPENSATION[direction] = factors
                 logging.info(f"Updated compensation factors for {direction}: {factors}")
-                client.publish(RX_TOPIC, json.dumps({
+                client.publish(MQTT_TOPIC_RX, json.dumps({
                     "status": "config_updated", 
                     "compensation": MOTOR_COMPENSATION
                 }))
                 return
             else:
                 logging.warning(f"Invalid compensation factors: {factors}")
-                client.publish(RX_TOPIC, json.dumps({"status": "error", "message": "Invalid compensation factors"}))
+                client.publish(MQTT_TOPIC_RX, json.dumps({"status": "error", "message": "Invalid compensation factors"}))
                 return
 
     # TODO: per-motor control if needed later
@@ -400,7 +400,7 @@ def handle_command(ctrl: MotorController, gimbal_ctrl: GimbalController, cmd: di
 
 def main():
     parser = argparse.ArgumentParser(description="MQTT -> GPIO PWM motor controller")
-    parser.add_argument("--broker", default=MQTT_BROKER_HOST, help="MQTT broker host")
+    parser.add_argument("--broker", default=PI_IP, help="MQTT broker host")
     parser.add_argument("--freq", type=int, default=PWM_FREQUENCY_HZ, help="PWM frequency in Hz")
     parser.add_argument("--ramp_ms", type=int, default=DEFAULT_RAMP_MS, help="Default ramp time for spool commands")
     parser.add_argument("--loglevel", default="info", choices=["debug", "info", "warning", "error", "critical"], help="Logging level")
@@ -420,8 +420,8 @@ def main():
     def on_connect(cli, _userdata, _flags, rc):
         if rc == 0:
             logging.info("Connected to MQTT broker at %s", args.broker)
-            cli.subscribe(TX_TOPIC)
-            logging.info("Subscribed to %s", TX_TOPIC)
+            cli.subscribe(MQTT_TOPIC_TX)
+            logging.info("Subscribed to %s", MQTT_TOPIC_TX)
         else:
             logging.error("Failed to connect to MQTT broker rc=%s", rc)
 

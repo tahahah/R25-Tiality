@@ -3,6 +3,14 @@ import json
 import logging
 import threading
 import time
+import sys
+import os
+
+# Add MotorMoving directory to path to import config
+motor_moving_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'MotorMoving')
+if motor_moving_path not in sys.path:
+    sys.path.append(motor_moving_path)
+from config import PI_MQTT_PORT, MQTT_TOPIC_TX, MQTT_TOPIC_RX, MQTT_KEEPALIVE
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +34,7 @@ class GuiMqttClient:
         """Connect to Pi's MQTT broker"""
         try:
             logger.info(f"Connecting to Pi at {self.pi_ip}...")
-            self.client.connect(self.pi_ip, 1883, 60)
+            self.client.connect(self.pi_ip, PI_MQTT_PORT, MQTT_KEEPALIVE)
             self.client.loop_start()
             return True
         except Exception as e:
@@ -86,7 +94,7 @@ class GuiMqttClient:
         """Internal method to publish MQTT command"""
         try:
             message = json.dumps(command)
-            result = self.client.publish("robot/tx", message)
+            result = self.client.publish(MQTT_TOPIC_TX, message)
             logger.info(f"Sent MQTT: {command}")
             return result.rc == mqtt.MQTT_ERR_SUCCESS
         except Exception as e:
@@ -98,7 +106,7 @@ class GuiMqttClient:
         if rc == 0:
             self.connected = True
             logger.info("Connected to Pi MQTT broker successfully!")
-            client.subscribe("robot/rx")  # Subscribe to responses
+            client.subscribe(MQTT_TOPIC_RX)  # Subscribe to responses
             if self.connection_callback:
                 self.connection_callback(True)
         else:
@@ -117,7 +125,7 @@ class GuiMqttClient:
     def on_message(self, client, userdata, msg):
         """Handle messages from Pi"""
         try:
-            if msg.topic == "robot/rx":
+            if msg.topic == MQTT_TOPIC_RX:
                 data = json.loads(msg.payload.decode())
                 logger.info(f"Received from Pi: {data}")
                 # Handle position updates, status messages, etc.

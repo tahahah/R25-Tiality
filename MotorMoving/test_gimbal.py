@@ -3,17 +3,22 @@
 Simple test script for gimbal control
 Run this directly on the Raspberry Pi to test the gimbal
 """
+import sys
+import os
 from gimbalcode import GimbalController
 import time
 
+# Import config from same directory
+from config import GIMBAL_PIN_X, GIMBAL_PIN_Y, GIMBAL_PIN_C
+
 def test_gimbal():
     print(" Testing Gimbal Controller")
-    print("Pins: X=18, Y=27, C=22")
+    print(f"Pins: X={GIMBAL_PIN_X}, Y={GIMBAL_PIN_Y}, C={GIMBAL_PIN_C}")
     print("=" * 30)
     
     try:
         # Initialize gimbal
-        gimbal = GimbalController(x_pin=18, y_pin=27, c_pin=22)
+        gimbal = GimbalController()  # Uses default pins from config
         print(" Gimbal initialized successfully")
         
         # Get initial position

@@ -8,15 +8,15 @@ Your existing `mqtt_to_pwm.py` has been enhanced with 3-axis gimbal control capa
 
 - **Gimbal Controller Class**: Integrates with your existing `gimbalcode.py`
 - **MQTT Command Handling**: Processes gimbal commands alongside motor commands
-- **Pin Configuration**: Uses pins 18 (X-axis), 27 (Y-axis), and 22 (Crane)
+- **Pin Configuration**: Uses pins from centralized config (default: 18, 22, 27)
 - **Error Handling**: Robust error handling and logging
 
 ## 🔧 Hardware Setup
 
 ### Servo Connections
-- **X-axis servo (left/right)**: Connect to GPIO pin 18
-- **Y-axis servo (up/down)**: Connect to GPIO pin 27
-- **Crane servo (up/down)**: Connect to GPIO pin 22
+- **X-axis servo (left/right)**: Connect to GPIO pin 18 (configurable in config.py)
+- **Y-axis servo (up/down)**: Connect to GPIO pin 22 (configurable in config.py)
+- **Crane servo (up/down)**: Connect to GPIO pin 27 (configurable in config.py)
 - **Power**: 5V supply for servos
 - **Ground**: Common ground with Raspberry Pi
 
@@ -66,7 +66,7 @@ pip install paho-mqtt pynput
 #### Edit IP Address
 Open `gimbal_remote.py` and change:
 ```python
-PI_IP = "192.168.1.100"  # Change to your Pi's actual IP
+# Pi IP is now configured in the main config.py file
 ```
 
 #### Run Remote Control
