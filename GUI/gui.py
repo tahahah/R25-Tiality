@@ -173,18 +173,11 @@ class ExplorerGUI:
     
     def _send_gimbal_mqtt_command(self, command: str) -> None:
         """Convert GUI command to MQTT gimbal command"""
-        # Parse command like "GIMBAL_X_LEFT_10"
+        # Parse command like "GIMBAL_X_LEFT_2"
         parts = command.split('_')
         if len(parts) >= 3:
             action = f"{parts[1].lower()}_{parts[2].lower()}"  # "x_left"
-            degrees = int(parts[3]) if len(parts) > 3 else 10
-            
-            # This would integrate with your MQTT client
-            mqtt_command = {
-                "type": "gimbal", 
-                "action": action,
-                "degrees": degrees
-            }
+            degrees = int(parts[3]) if len(parts) > 3 else DEFAULT_GIMBAL_DEGREES
             
             # Send via MQTT client to Pi
             self.mqtt_client.send_gimbal_command(action, degrees)
@@ -459,11 +452,6 @@ class ExplorerGUI:
             degrees = DEFAULT_GIMBAL_DEGREES  # Use config value (2 degrees)
             
             # Send MQTT gimbal command
-            gimbal_command = {
-                "type": "gimbal",
-                "action": action,
-                "degrees": degrees
-            }
             self.send_command(f'GIMBAL_{action.upper()}_{degrees}')
     
     def _handle_car_movement_keys(self, event: pygame.event.Event, is_key_pressed: bool) -> None:
