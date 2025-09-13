@@ -35,7 +35,7 @@ def main():
     # Setup thread safe queues, vars  and start gRPC client---
     video_thread = threading.Thread(
         target=pi_video_manager_worker, 
-        args=(args.server_addr, frame_generator_picamera2),
+        args=(args.broker, frame_generator_picamera2),
         daemon=True  # A daemon thread will exit when the main program exits.
     )
     video_thread.start()
