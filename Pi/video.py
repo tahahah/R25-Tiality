@@ -4,6 +4,8 @@ import queue
 import cv2
 import time
 import threading
+import grpc
+import io
 
 def pi_video_manager_worker(server_addr, frame_generator_func):
     """
@@ -97,6 +99,27 @@ def pi_video_manager_worker(server_addr, frame_generator_func):
                     picam2.stop()
             except Exception:
                 pass
+
+def frame_generator_picamera2(frame_queue: queue.Queue):
+    """
+    A generator function that gets camera frame from a thread-safe queue as bytes and yields them as VideoFrame messages.
+    """
+    print("Frame generator started. Waiting for frames from the queue...")
+    while True:
+        # Block until a frame is available in the queue.
+        frame_bytes = frame_queue.get()
+        
+        # If a sentinel value (e.g., None) is received, stop the generator.
+        if frame_bytes is None:
+            print("Stopping frame generator.")
+            break
+
+        try:
+            # Yield the frame data in the format expected by the .proto file.
+            yield tiality_server.video_streaming_pb2.VideoFrame(frame_data=frame_bytes)
+
+        except Exception as e:
+            print(f"Error encoding frame: {e}")
 
 
 def capture_frame_as_bytes(picam2: Picamera2, quality: int = 75) -> bytes:

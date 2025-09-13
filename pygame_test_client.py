@@ -262,6 +262,8 @@ def main():
 
     
 
+    
+
     # Setup thread safe queues, vars  and start gRPC client---
     frame_queue = queue.Queue(maxsize = 1)
     server_addr = 'localhost:50051'

@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 
 # Configuration - change this to your Pi's IP address
-PI_IP_ADDRESS = "10.1.1.124"  # Replace with your Pi's actual IP
+PI_IP_ADDRESS = "10.1.1.228"  # Replace with your Pi's actual IP
 
 
 class WebRTCClient:

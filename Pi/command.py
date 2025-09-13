@@ -288,7 +288,7 @@ def handle_command(ctrl: MotorController, cmd: dict, client: mqtt.Client):
     # TODO: per-motor control if needed later
 
 
-def command_manager_worker(broker_host, PWM_frequency_hz, ramp_ms, log_level):
+def pi_command_manager_worker(broker_host, port, PWM_frequency_hz, ramp_ms, log_level):
 
     log_level = getattr(logging, log_level)
     logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -320,7 +320,7 @@ def command_manager_worker(broker_host, PWM_frequency_hz, ramp_ms, log_level):
     client.on_message = on_message
 
     try:
-        client.connect(broker_host, 1883, 60)
+        client.connect(broker_host, port, 60)
     except Exception as e:
         logging.error("Could not connect to MQTT broker: %s", e)
         ctrl.cleanup()
