@@ -23,7 +23,7 @@ except (ImportError, RuntimeError):
 
 # ---------------- Configuration ----------------
 # BCM pin numbers
-ENABLE_PINS: List[int] = [19, 26]  # Removed 22,27 - used by gimbal
+ENABLE_PINS: List[int] = [19, 26, 20, 21]  # 4 enable pins for 4 motors (avoiding 18,22,27 used by gimbal)
 INPUT_PINS: List[int] = [2, 3, 4, 17, 6, 13, 5, 11]  # 8 pins -> 4 pairs
 PWM_FREQUENCY_HZ = 1000
 DEFAULT_RAMP_MS = 2000
