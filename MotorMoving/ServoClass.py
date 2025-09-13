@@ -99,8 +99,7 @@ class Servo:
         # Setup GPIO for Raspberry Pi
         if GPIO_AVAILABLE:
             try:
-                # Only set mode if not already set
-                GPIO.setmode(GPIO.BCM)  # Use BCM numbering (GPIO 18, 27, 22)
+                # GPIO should already be initialized globally
                 GPIO.setup(pin, GPIO.OUT)
                 self.__motor = GPIO.PWM(pin, self.__servo_pwm_freq)
                 self.__motor.start(0)  # Start PWM with 0% duty cycle

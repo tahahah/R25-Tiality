@@ -106,8 +106,7 @@ class Motor:
 class MotorController:
     def __init__(self, enable_pins: List[int], motor_pairs: List[Tuple[int, int]], freq_hz: int):
         if GPIO_AVAILABLE and GPIO:
-            GPIO.setmode(GPIO.BCM)
-            GPIO.setwarnings(False)  # Suppress GPIO warnings
+            # GPIO should already be initialized globally
             # Setup pins
             for pin in enable_pins:
                 GPIO.setup(pin, GPIO.OUT)
@@ -419,11 +418,16 @@ def main():
     log_level = getattr(logging, args.loglevel.upper())
     logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    ctrl = MotorController(ENABLE_PINS, MOTOR_PAIRS, args.freq)
+    # Initialize GPIO once for both motor and gimbal controllers
+    if GPIO_AVAILABLE and GPIO:
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        logging.info("GPIO initialized for motor and gimbal controllers")
     
-    # Initialize gimbal controller
+    # Initialize controllers
+    ctrl = MotorController(ENABLE_PINS, MOTOR_PAIRS, args.freq)
     gimbal_ctrl = GimbalController()
-    logging.info("Gimbal controller initialized")
+    logging.info("Motor and gimbal controllers initialized")
 
     client = mqtt.Client()
 
