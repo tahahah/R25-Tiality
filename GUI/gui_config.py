@@ -35,6 +35,7 @@ class Colour:
     RED = (255, 0, 0)
     BLUE = (0, 0, 255)
     YELLOW = (255, 255, 0)
+    CYAN = (0, 255, 255)
     BEIGE = (222, 196, 160)
 
 

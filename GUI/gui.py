@@ -127,6 +127,9 @@ class ExplorerGUI:
         # Add gimbal state tracking
         self.gimbal_position = {'x': 90, 'y': 90, 'c': 90}  # Track current angles
         
+        # Gimbal degree increment (adjustable)
+        self.gimbal_degrees = DEFAULT_GIMBAL_DEGREES  # Start with default from config
+        
         self.connection_status = ConnectionStatus.DISCONNECTED
 
     @property
@@ -253,13 +256,13 @@ class ExplorerGUI:
             # Convert movement directions to gimbal commands
             for direction in active_movements:
                 if direction == "UP":
-                    command = f'GIMBAL_Y_UP_{DEFAULT_GIMBAL_DEGREES}'
+                    command = f'GIMBAL_Y_UP_{self.gimbal_degrees}'
                 elif direction == "DOWN":
-                    command = f'GIMBAL_Y_DOWN_{DEFAULT_GIMBAL_DEGREES}'
+                    command = f'GIMBAL_Y_DOWN_{self.gimbal_degrees}'
                 elif direction == "LEFT":
-                    command = f'GIMBAL_X_LEFT_{DEFAULT_GIMBAL_DEGREES}'
+                    command = f'GIMBAL_X_LEFT_{self.gimbal_degrees}'
                 elif direction == "RIGHT":
-                    command = f'GIMBAL_X_RIGHT_{DEFAULT_GIMBAL_DEGREES}'
+                    command = f'GIMBAL_X_RIGHT_{self.gimbal_degrees}'
                 
                 # Only send command if it's different from the last one
                 if command != self.last_sent_command:
@@ -345,11 +348,16 @@ class ExplorerGUI:
         arm_surface = self.fonts['medium'].render(arm_text, True, arm_colour)
         self.screen.blit(arm_surface, (30, y_position))
         
-        # Show gimbal position when in gimbal mode
+        # Show gimbal position and degree setting when in gimbal mode
         if is_raised:
             pos_text = f"Gimbal: X={self.gimbal_position['x']}° Y={self.gimbal_position['y']}° C={self.gimbal_position['c']}°"
             pos_surface = self.fonts['small'].render(pos_text, True, self.colours.YELLOW)
             self.screen.blit(pos_surface, (30, y_position + 25))
+            
+            # Show current degree increment setting
+            degree_text = f"Step Size: {self.gimbal_degrees}° (Use +/- to adjust, R to reset)"
+            degree_surface = self.fonts['small'].render(degree_text, True, self.colours.CYAN)
+            self.screen.blit(degree_surface, (30, y_position + 45))
 
     def draw_overlays(self) -> None:
         """Draw all interactive overlays on top of the background image."""
@@ -372,9 +380,12 @@ class ExplorerGUI:
         """Draw help overlay with gimbal control instructions"""
         help_lines = [
             "GIMBAL CONTROL:",
-            "  Arrow Keys / WASD - Control gimbal X/Y (2° steps)",
+            f"  Arrow Keys / WASD - Control gimbal X/Y ({self.gimbal_degrees}° steps)",
             "  X - Raise arm (PIN_C up)", 
             "  C - Lower arm (PIN_C down)",
+            "  + / = - Increase step size",
+            "  - / _ - Decrease step size",
+            "  R - Reset step size to default",
             "  Space - Emergency stop",
             "  1, 2 - Toggle cameras",
             "  H - Show/hide this help",
@@ -449,10 +460,9 @@ class ExplorerGUI:
         
         if event.key in gimbal_commands:
             action = gimbal_commands[event.key]
-            degrees = DEFAULT_GIMBAL_DEGREES  # Use config value (2 degrees)
             
-            # Send MQTT gimbal command
-            self.send_command(f'GIMBAL_{action.upper()}_{degrees}')
+            # Send MQTT gimbal command with current degree setting
+            self.send_command(f'GIMBAL_{action.upper()}_{self.gimbal_degrees}')
     
     def _handle_car_movement_keys(self, event: pygame.event.Event, is_key_pressed: bool) -> None:
         """Original car movement logic"""
@@ -475,10 +485,10 @@ class ExplorerGUI:
         """Control arm (PIN_C) up and down"""
         if key == pygame.K_x:
             # X raises the arm (PIN_C up)
-            self.send_command(f'GIMBAL_C_UP_{DEFAULT_GIMBAL_DEGREES}')
+            self.send_command(f'GIMBAL_C_UP_{self.gimbal_degrees}')
         elif key == pygame.K_c:
             # C lowers the arm (PIN_C down)
-            self.send_command(f'GIMBAL_C_DOWN_{DEFAULT_GIMBAL_DEGREES}')
+            self.send_command(f'GIMBAL_C_DOWN_{self.gimbal_degrees}')
 
     def _handle_function_keys(self, event: pygame.event.Event) -> None:
         """Enhanced function key handling"""
@@ -494,6 +504,12 @@ class ExplorerGUI:
             self._handle_camera_toggle(key)
         elif key in (pygame.K_x, pygame.K_c):
             self._handle_arm_control(key)
+        elif key in (pygame.K_PLUS, pygame.K_EQUALS):  # + or = key
+            self._increase_gimbal_degrees()
+        elif key in (pygame.K_MINUS, pygame.K_UNDERSCORE):  # - or _ key
+            self._decrease_gimbal_degrees()
+        elif key == pygame.K_r:  # R key to reset to default
+            self._reset_gimbal_degrees()
 
     def _handle_camera_toggle(self, key: int) -> None:
         camera_index = 0 if key == pygame.K_1 else 1
@@ -505,6 +521,21 @@ class ExplorerGUI:
         command = f'CAMERA_{camera_number}_{state}'
         
         self.send_command(command)
+    
+    def _increase_gimbal_degrees(self):
+        """Increase gimbal degree increment"""
+        self.gimbal_degrees = min(20, self.gimbal_degrees + 1)  # Max 20 degrees
+        logger.info(f"Gimbal degrees increased to: {self.gimbal_degrees}")
+    
+    def _decrease_gimbal_degrees(self):
+        """Decrease gimbal degree increment"""
+        self.gimbal_degrees = max(1, self.gimbal_degrees - 1)  # Min 1 degree
+        logger.info(f"Gimbal degrees decreased to: {self.gimbal_degrees}")
+    
+    def _reset_gimbal_degrees(self):
+        """Reset gimbal degree increment to default"""
+        self.gimbal_degrees = DEFAULT_GIMBAL_DEGREES
+        logger.info(f"Gimbal degrees reset to default: {self.gimbal_degrees}")
 
     def handle_events(self) -> None:
         """Handle all pygame events."""

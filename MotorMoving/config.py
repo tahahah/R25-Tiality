@@ -18,7 +18,7 @@ MQTT_TIMEOUT = 5
 DEFAULT_BACKGROUND_IMAGE = "wildlife_explorer.png"
 
 # Motor Settings
-DEFAULT_GIMBAL_DEGREES = 2
+DEFAULT_GIMBAL_DEGREES = 10
 DEFAULT_MOTOR_SPEED = 0.5
 
 # Gimbal Pin Configuration

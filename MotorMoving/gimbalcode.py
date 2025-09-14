@@ -26,7 +26,7 @@ class GimbalController:
         self.x_servo = Servo(x_pin)  # X-axis (left/right)
         self.y_servo = Servo(y_pin)  # Y-axis (up/down)
         self.c_servo = Servo(c_pin)  # Crane servo (up/down)
-        # Note: Servos start at 0 degrees by default, no automatic centering
+        self.center_gimbal() #automatic centering
         
     def x_left(self, degrees=10):
         """
@@ -37,6 +37,7 @@ class GimbalController:
         """
         current_angle = self.x_servo.get_current_angle()
         new_angle = max(0, current_angle - degrees)
+        print(f"X-LEFT: Current={current_angle}, Moving by {degrees}, New={new_angle}")
         self.x_servo.move(new_angle)
         
     def x_right(self, degrees=10):
@@ -48,6 +49,7 @@ class GimbalController:
         """
         current_angle = self.x_servo.get_current_angle()
         new_angle = min(180, current_angle + degrees)
+        print(f"X-RIGHT: Current={current_angle}, Moving by {degrees}, New={new_angle}")
         self.x_servo.move(new_angle)
         
     def y_up(self, degrees=10):
@@ -59,6 +61,7 @@ class GimbalController:
         """
         current_angle = self.y_servo.get_current_angle()
         new_angle = min(180, current_angle + degrees)
+        print(f"Y-UP: Current={current_angle}, Moving by {degrees}, New={new_angle}")
         self.y_servo.move(new_angle)
         
     def y_down(self, degrees=10):
@@ -70,6 +73,7 @@ class GimbalController:
         """
         current_angle = self.y_servo.get_current_angle()
         new_angle = max(0, current_angle - degrees)
+        print(f"Y-DOWN: Current={current_angle}, Moving by {degrees}, New={new_angle}")
         self.y_servo.move(new_angle)
 
     def c_up(self, degrees=10):
@@ -81,6 +85,7 @@ class GimbalController:
         """
         current_angle = self.c_servo.get_current_angle()
         new_angle = min(180, current_angle + degrees)
+        print(f"C-UP: Current={current_angle}, Moving by {degrees}, New={new_angle}")
         self.c_servo.move(new_angle)
         
     def c_down(self, degrees=10):
@@ -92,6 +97,7 @@ class GimbalController:
         """
         current_angle = self.c_servo.get_current_angle()
         new_angle = max(0, current_angle - degrees)
+        print(f"C-DOWN: Current={current_angle}, Moving by {degrees}, New={new_angle}")
         self.c_servo.move(new_angle)
 
 
@@ -124,10 +130,14 @@ class GimbalController:
         self.c_servo.move(angle)
         
     def center_gimbal(self):
-        """Center both X and Y axes"""
+        """Center all axes at 90 degrees"""
+        print("Centering gimbal to 90 degrees")
         self.x_servo.move(90)  # Center X-axis
+        sleep(0.1)  # Small delay to reduce jitter
         self.y_servo.move(90)  # Center Y-axis
-        self.c_servo.move(90)  # Center Crane (Check Actaul angle that we want to  center it at )
+        sleep(0.1)  # Small delay to reduce jitter
+        self.c_servo.move(90)  # Center Crane
+        sleep(0.1)  # Small delay to reduce jitter
         
     def get_position(self):
         """Get current X and Y, and C positions"""
