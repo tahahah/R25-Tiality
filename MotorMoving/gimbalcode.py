@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-2-Axis Gimbal Controller for Raspberry Pi
+3-Axis Gimbal Controller for Raspberry Pi
 Uses ServoClass.py for motor control
-Controls X-axis (left/right) and Y-axis (up/down) using SG90 servos
+Controls X-axis (left/right) and Y-axis (up/down) using pigpio for better performance
+Controls C-axis (crane) using RPi.GPIO
 """
 import sys
 import os
@@ -18,14 +19,14 @@ class GimbalController:
         Initialize 3-axis gimbal controller
         
         Args:
-            x_pin (int): GPIO pin for X-axis servo (left/right) - default from config
-            y_pin (int): GPIO pin for Y-axis servo (up/down) - default from config
-            c_pin (int): GPIO pin for crane servo (up/down) - default from config
+            x_pin (int): GPIO pin for X-axis servo (left/right) - uses pigpio
+            y_pin (int): GPIO pin for Y-axis servo (up/down) - uses pigpio
+            c_pin (int): GPIO pin for crane servo (up/down) - uses RPi.GPIO
         """
-        # Initialize both servos
-        self.x_servo = Servo(x_pin)  # X-axis (left/right)
-        self.y_servo = Servo(y_pin)  # Y-axis (up/down)
-        self.c_servo = Servo(c_pin)  # Crane servo (up/down)
+        # Initialize servos with different libraries
+        self.x_servo = Servo(x_pin, use_pigpio=True)  # X-axis (left/right) - pigpio
+        self.y_servo = Servo(y_pin, use_pigpio=True)  # Y-axis (up/down) - pigpio
+        self.c_servo = Servo(c_pin, use_pigpio=False) # Crane servo (up/down) - RPi.GPIO
         self.center_gimbal() #automatic centering
         
     def x_left(self, degrees=10):
@@ -132,11 +133,11 @@ class GimbalController:
     def center_gimbal(self):
         """Center all axes at 90 degrees"""
         print("Centering gimbal to 90 degrees")
-        self.x_servo.move(90)  # Center X-axis
+        self.x_servo.move(90)  # Center X-axis (pigpio)
         sleep(0.1)  # Small delay to reduce jitter
-        self.y_servo.move(90)  # Center Y-axis
+        self.y_servo.move(90)  # Center Y-axis (pigpio)
         sleep(0.1)  # Small delay to reduce jitter
-        self.c_servo.move(90)  # Center Crane
+        self.c_servo.move(90)  # Center Crane (RPi.GPIO)
         sleep(0.1)  # Small delay to reduce jitter
         
     def get_position(self):
@@ -148,10 +149,13 @@ class GimbalController:
         }
         
     def cleanup(self):
-        """Clean up both servos"""
-        self.x_servo.stop()
-        self.y_servo.stop()
-        self.c_servo.stop()
+        """Clean up all servos"""
+        self.x_servo.stop()  # pigpio servo
+        self.y_servo.stop()  # pigpio servo
+        self.c_servo.stop()  # RPi.GPIO servo
+        # Clean up pigpio instances
+        from ServoClass import Servo
+        Servo.cleanup_all()
 
 
 
