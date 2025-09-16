@@ -37,6 +37,7 @@ MOTOR_POLARITY = [1, 1, 1, 1]
 
 MQTT_BROKER_HOST = "localhost"
 TX_TOPIC = "robot/tx"
+RX_TOPIC = "robot/rx"
 
 assert len(INPUT_PINS) == 8, "Expect 8 input pins (2 per motor)"
 MOTOR_PAIRS: List[Tuple[int, int]] = [
@@ -251,6 +252,7 @@ def handle_command(ctrl: MotorController, cmd: dict, client: mqtt.Client):
     action = cmd.get("action")
     if action == "stop":
         ctrl.stop_all()
+        client.publish(RX_TOPIC, json.dumps({"status": "stopped"}))
         return
 
     if t == "all":
@@ -259,11 +261,13 @@ def handle_command(ctrl: MotorController, cmd: dict, client: mqtt.Client):
             target = float(cmd.get("target", 100))
             ramp_ms = int(cmd.get("ramp_ms", DEFAULT_RAMP_MS))
             ctrl.spool_all(direction, target, ramp_ms)
+            client.publish(RX_TOPIC, json.dumps({"status": "spooling", "direction": direction, "target": target, "ramp_ms": ramp_ms}))
             return
         if action == "set":
             direction = cmd.get("direction", "forward")
             speed = float(cmd.get("speed", 0))
             ctrl.set_all(direction, speed)
+            client.publish(RX_TOPIC, json.dumps({"status": "set", "direction": direction, "speed": speed}))
             return
     elif t == "vector":
         if action == "set":
@@ -271,6 +275,7 @@ def handle_command(ctrl: MotorController, cmd: dict, client: mqtt.Client):
             vy = float(cmd.get("vy", 0))
             omega = float(cmd.get("w", cmd.get("omega", 0)))
             ctrl.set_vector(vx, vy, omega)
+            client.publish(RX_TOPIC, json.dumps({"status": "vector_set", "vx": vx, "vy": vy, "w": omega}))
             return
     
     elif t == "config":
@@ -281,32 +286,31 @@ def handle_command(ctrl: MotorController, cmd: dict, client: mqtt.Client):
                 # Update the compensation factors
                 MOTOR_COMPENSATION[direction] = factors
                 logging.info(f"Updated compensation factors for {direction}: {factors}")
+                client.publish(RX_TOPIC, json.dumps({
+                    "status": "config_updated", 
+                    "compensation": MOTOR_COMPENSATION
+                }))
                 return
             else:
                 logging.warning(f"Invalid compensation factors: {factors}")
+                client.publish(RX_TOPIC, json.dumps({"status": "error", "message": "Invalid compensation factors"}))
                 return
 
     # TODO: per-motor control if needed later
 
 
-def main():
-    parser = argparse.ArgumentParser(description="MQTT -> GPIO PWM motor controller")
-    parser.add_argument("--broker", default=MQTT_BROKER_HOST, help="MQTT broker host")
-    parser.add_argument("--freq", type=int, default=PWM_FREQUENCY_HZ, help="PWM frequency in Hz")
-    parser.add_argument("--ramp_ms", type=int, default=DEFAULT_RAMP_MS, help="Default ramp time for spool commands")
-    parser.add_argument("--loglevel", default="info", choices=["debug", "info", "warning", "error", "critical"], help="Logging level")
-    args = parser.parse_args()
+def command_manager_worker(broker_host, PWM_frequency_hz, ramp_ms, log_level):
 
-    log_level = getattr(logging, args.loglevel.upper())
+    log_level = getattr(logging, log_level)
     logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    ctrl = MotorController(ENABLE_PINS, MOTOR_PAIRS, args.freq)
+    ctrl = MotorController(ENABLE_PINS, MOTOR_PAIRS, PWM_frequency_hz)
 
     client = mqtt.Client()
 
     def on_connect(cli, _userdata, _flags, rc):
         if rc == 0:
-            logging.info("Connected to MQTT broker at %s", args.broker)
+            logging.info("Connected to MQTT broker at %s", broker_host)
             cli.subscribe(TX_TOPIC)
             logging.info("Subscribed to %s", TX_TOPIC)
         else:
@@ -328,7 +332,7 @@ def main():
     client.on_message = on_message
 
     try:
-        client.connect(args.broker, 1883, 60)
+        client.connect(broker_host, 1883, 60)
     except Exception as e:
         logging.error("Could not connect to MQTT broker: %s", e)
         ctrl.cleanup()

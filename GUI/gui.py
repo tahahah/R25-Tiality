@@ -78,7 +78,7 @@ class ExplorerGUI:
         self, 
         background_image_path: str, 
         command_callback: Optional[Callable[[str], None]] = None,
-        sim: bool = False
+        is_robot: bool = True
     ):
         """
         Args:
@@ -89,7 +89,7 @@ class ExplorerGUI:
         pygame.init()
         self.config = GuiConfig()
         self.colours = Colour()
-        self.sim = sim
+        self.is_robot = is_robot
         
         # Setup display and resources
         self._load_background(background_image_path)
@@ -157,14 +157,20 @@ class ExplorerGUI:
         """Initialise Explorer Control state variables."""
         # Movement control states
         # Set default keybindings
-        self.default_keys = {}
-        self.default_keys["up"] = False
-        self.default_keys["down"] = False
-        self.default_keys["rotate_left"] = False
-        self.default_keys["rotate_right"] = False
-        self.default_keys["left"] = False
-        self.default_keys["right"] = False
-        self.movement_keys = self.default_keys.copy()
+        if self.is_robot:
+            # Robot default: no movement (stop command)
+            self.default_keys = {"type": "all", "action": "stop"}
+            # Keep movement_keys empty in robot mode; we send commands directly
+            self.movement_keys = {}
+        else:
+            self.default_keys = {}
+            self.default_keys["up"] = False
+            self.default_keys["down"] = False
+            self.default_keys["rotate_left"] = False
+            self.default_keys["rotate_right"] = False
+            self.default_keys["left"] = False
+            self.default_keys["right"] = False
+            self.movement_keys = self.default_keys.copy()
         
         # Camera states (all cameras start active)
         self.camera_states = [True] * self.config.NUM_CAMERAS
@@ -398,32 +404,97 @@ class ExplorerGUI:
             event: Pygame event object
             is_key_pressed: True for key press, False for key release
         """
-        # Map pygame keys to movement directions
-        # key_to_direction = {
-        #     pygame.K_UP: 'up', 
-        #     pygame.K_w: 'up',
-        #     pygame.K_DOWN: 'down', 
-        #     pygame.K_s: 'down',
-        #     pygame.K_LEFT: 'left', 
-        #     pygame.K_a: 'left',
-        #     pygame.K_RIGHT: 'right', 
-        #     pygame.K_d: 'right',
-        #     pygame.K_e: 'rotate_right',
-        #     pygame.K_q: 'rotate_left'
-        # }
-        
-        # if event.key in key_to_direction:
-        #     direction = key_to_direction[event.key]
-        #     self.movement_keys[direction] = is_key_pressed
-
-        pygame_keys = pygame.key.get_pressed()
         keys = self.default_keys.copy()
-        keys["up"] = pygame_keys[pygame.K_w] or pygame_keys[pygame.K_UP]
-        keys["down"] = pygame_keys[pygame.K_s] or pygame_keys[pygame.K_DOWN]
-        keys["rotate_left"] = pygame_keys[pygame.K_q]
-        keys["rotate_right"] = pygame_keys[pygame.K_e]
-        keys["left"] = pygame_keys[pygame.K_a]
-        keys["right"] = pygame_keys[pygame.K_d]
+
+        # Get movement keys from pygame
+        if self.is_robot:
+            # Map joystick/keyboard to MQTT command schema understood by mqtt_to_pwm.py
+            # Read full current state so we can emit a vector or stop
+            try:
+                pygame.joystick.init()
+            except Exception:
+                pass
+
+            vx = 0.0
+            vy = 0.0
+            w = 0.0
+
+            # Joystick axes: 0=x (right +), 1=y (up -), 2=rotation (clockwise +)
+            try:
+                js_count = pygame.joystick.get_count()
+                if js_count > 0:
+                    js = pygame.joystick.Joystick(0)
+                    if not js.get_init():
+                        js.init()
+                    try:
+                        x_axis = js.get_axis(0)
+                    except Exception:
+                        x_axis = 0.0
+                    try:
+                        y_axis = js.get_axis(1)
+                    except Exception:
+                        y_axis = 0.0
+                    try:
+                        rot_axis = js.get_axis(2)
+                    except Exception:
+                        rot_axis = 0.0
+
+                    # Map to percentage [-100..100]; invert Y so up is positive
+                    JOY_MAX_SPEED = 40.0
+                    JOY_MAX_ROT = 40.0
+                    vx = max(-100.0, min(100.0, x_axis * JOY_MAX_SPEED))
+                    vy = max(-100.0, min(100.0, -y_axis * JOY_MAX_SPEED))
+                    w = max(-100.0, min(100.0, rot_axis * JOY_MAX_ROT))
+            except Exception:
+                pass
+
+            # Keyboard overrides/additions
+            pygame_keys = pygame.key.get_pressed()
+            key_speed = 50.0
+            rot_speed = 40.0
+            if pygame_keys[pygame.K_a]:
+                vx = -key_speed
+            if pygame_keys[pygame.K_d]:
+                vx = key_speed
+            if pygame_keys[pygame.K_w] or pygame_keys[pygame.K_UP]:
+                vy = key_speed
+            if pygame_keys[pygame.K_s] or pygame_keys[pygame.K_DOWN]:
+                vy = -key_speed
+            if pygame_keys[pygame.K_q]:
+                w = -rot_speed
+            if pygame_keys[pygame.K_e]:
+                w = rot_speed
+
+            # Deadzone to avoid noise
+            DEADZONE = 0.10
+            if abs(vx) < DEADZONE * 100.0:
+                vx = 0.0
+            if abs(vy) < DEADZONE * 100.0:
+                vy = 0.0
+            if abs(w) < DEADZONE * 100.0:
+                w = 0.0
+
+            # Emit command: vector if movement present, else stop
+            if (vx != 0.0) or (vy != 0.0) or (w != 0.0):
+                cmd = {"type": "vector", "action": "set", "vx": int(vx), "vy": int(vy), "w": int(w)}
+            else:
+                cmd = self.default_keys
+
+            try:
+                self.send_command(json.dumps(cmd).encode())
+            except Exception as e:
+                logger.error(f"Failed to send movement command: {e}")
+            # Keep GUI's legacy movement_keys empty in robot mode to avoid duplicate sends elsewhere
+            self.movement_keys = {}
+        else:
+            pygame_keys = pygame.key.get_pressed()
+            keys["up"] = pygame_keys[pygame.K_w] or pygame_keys[pygame.K_UP]
+            keys["down"] = pygame_keys[pygame.K_s] or pygame_keys[pygame.K_DOWN]
+            keys["rotate_left"] = pygame_keys[pygame.K_q]
+            keys["rotate_right"] = pygame_keys[pygame.K_e]
+            keys["left"] = pygame_keys[pygame.K_a]
+            keys["right"] = pygame_keys[pygame.K_d]
+        
         self.movement_keys = keys.copy()
 
     def _handle_function_keys(self, event: pygame.event.Event) -> None:
@@ -519,8 +590,12 @@ class ExplorerGUI:
 
 if __name__ == "__main__":
     import os
-    
-    print("Wildlife Explorer RC Car Controller")
+    import argparse
+    parser = argparse.ArgumentParser(description="Wildlife Explorer RC Car Controller")
+    parser.add_argument("--robot", action='store_true', help="Whether to run the robot or sim")
+    args = parser.parse_args()
+    gui_type = "Robot" if args.robot else "Sim"
+    print(f"Wildlife Explorer for {gui_type}")
     print("==================================")
     print("1280x720 HD Interface")
     print()
@@ -538,7 +613,7 @@ if __name__ == "__main__":
         logger.info(f"GUI Command: {command}")
     
     try:
-        gui = ExplorerGUI(image_path, command_callback)
+        gui = ExplorerGUI(image_path, command_callback, args.robot)
         gui.run()
     except KeyboardInterrupt:
         logger.info("Application interrupted by user")

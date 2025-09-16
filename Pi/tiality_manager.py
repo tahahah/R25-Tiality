@@ -14,7 +14,7 @@ from video import pi_video_manager_worker, capture_frame_as_bytes, frame_generat
 
 def main():
     parser = argparse.ArgumentParser(description="Pi Tiality Manager")
-    parser.add_argument("--broker", type=str, default="localhost:50051", help="Address of the video manager broker (default: localhost:50051)")
+    parser.add_argument("--video_server", type=str, default="localhost:50051", help="Address of the video manager broker (default: localhost:50051)")
     args = parser.parse_args()
 
     # # Setup threadsafe queue and setup command subscriber
@@ -35,7 +35,7 @@ def main():
     # Setup thread safe queues, vars  and start gRPC client---
     video_thread = threading.Thread(
         target=pi_video_manager_worker, 
-        args=(args.broker, frame_generator_picamera2),
+        args=(args.video_server, frame_generator_picamera2),
         daemon=True  # A daemon thread will exit when the main program exits.
     )
     video_thread.start()

@@ -3,7 +3,9 @@ import argparse
 import json
 import logging
 import threading
+import tiality_server
 import time
+import queue
 from typing import List, Tuple, Optional
 
 import paho.mqtt.client as mqtt
@@ -213,7 +215,7 @@ class MotorController:
         self._spool_thread.start()
 
 
-def parse_command(payload: str):
+def parse_command(encoded_str: str):
     """Return a normalized command dict or None.
     Expected JSON examples:
       {"type":"all","action":"spool","direction":"forward","target":100,"ramp_ms":2000}
@@ -223,6 +225,7 @@ def parse_command(payload: str):
       {"type":"config","action":"set_compensation","direction":"forward","factors":[1.0, 0.8, 1.0, 0.8]}
     Fallback key names (non-JSON): 'up' -> forward spool, 'down' -> reverse spool, 'space' -> stop
     """
+    payload = encoded_str.decode("utf-8", errors="ignore")
     payload = payload.strip()
     try:
         obj = json.loads(payload)
@@ -245,7 +248,7 @@ def parse_command(payload: str):
     return None
 
 
-def handle_command(ctrl: MotorController, cmd: dict, client: mqtt.Client):
+def handle_command(ctrl: MotorController, cmd: dict):
     t = cmd.get("type", "all")
     action = cmd.get("action")
     if action == "stop":
@@ -287,6 +290,21 @@ def handle_command(ctrl: MotorController, cmd: dict, client: mqtt.Client):
 
     # TODO: per-motor control if needed later
 
+def get_queued_commands(prev_command_dict: dict, command_queue: queue.Queue) -> dict:
+    """
+    Get queued commands from GUI
+
+    Args:
+        default_dict (dict): dictionary of default keys
+
+    Returns:
+        dict: 
+    """
+    try:
+        command = command_queue.get_nowait()
+        return command
+    except queue.Empty:
+        return prev_command_dict.copy()
 
 def pi_command_manager_worker(broker_host, port, PWM_frequency_hz, ramp_ms, log_level):
 
@@ -295,7 +313,15 @@ def pi_command_manager_worker(broker_host, port, PWM_frequency_hz, ramp_ms, log_
 
     ctrl = MotorController(ENABLE_PINS, MOTOR_PAIRS, PWM_frequency_hz)
 
-    client = mqtt.Client()
+    command_subscriber_client = tiality_server.subscriber.setup_command_subscriber(
+        mqtt_port = broker_port,
+        broker_host_ip = broker_ip,
+        command_queue = commands_queue,
+        tx_topic = topic,
+        connection_established_event = connection_established_event,
+        message_decode_func = parse_command
+        )
+
 
     def on_connect(cli, _userdata, _flags, rc):
         if rc == 0:
@@ -316,9 +342,6 @@ def pi_command_manager_worker(broker_host, port, PWM_frequency_hz, ramp_ms, log_
         except Exception as e:
             logging.exception("Error handling command: %s", e)
 
-    client.on_connect = on_connect
-    client.on_message = on_message
-
     try:
         client.connect(broker_host, port, 60)
     except Exception as e:
@@ -330,6 +353,8 @@ def pi_command_manager_worker(broker_host, port, PWM_frequency_hz, ramp_ms, log_
     logging.info("Motor controller running. Press Ctrl+C to stop.")
     try:
         while True:
+            command_dict = get_queued_commands(prev_command_dict, commands_queue)
+            handle_command(ctrl, commands_dict)
             time.sleep(0.2)
     except KeyboardInterrupt:
         logging.info("Shutting down")
