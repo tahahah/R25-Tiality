@@ -22,6 +22,6 @@ DEFAULT_GIMBAL_DEGREES = 10
 DEFAULT_MOTOR_SPEED = 0.5
 
 # Gimbal Pin Configuration
-GIMBAL_PIN_X = 27  # X-axis servo pin (left/right)
-GIMBAL_PIN_Y = 22  # Y-axis servo pin (up/down)
-GIMBAL_PIN_C = 18  # C-axis servo pin
+GIMBAL_PIN_X = 18  # X-axis servo pin (left/right)
+GIMBAL_PIN_Y = 19  # Y-axis servo pin (up/down)
+GIMBAL_PIN_C = 22  # C-axis servo pin

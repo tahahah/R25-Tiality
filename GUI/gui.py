@@ -264,12 +264,25 @@ class ExplorerGUI:
                 elif direction == "RIGHT":
                     command = f'GIMBAL_X_RIGHT_{self.gimbal_degrees}'
                 
-                # Only send command if it's different from the last one
-                if command != self.last_sent_command:
+                # Always send gimbal commands (allow repeated movements)
+                if command.startswith('GIMBAL_'):
                     self.send_command(command)
                     self.last_command_time = current_time
                     self.last_sent_command = command
-                    break  # Only send one command at a time
+                    break
+                else:
+                    # Only check for duplicates on non-gimbal commands
+                    if command != self.last_sent_command:
+                        self.send_command(command)
+                        self.last_command_time = current_time
+                        self.last_sent_command = command
+                        break
+        else:
+            # Only check for duplicates on non-gimbal commands
+            if self.last_sent_command:
+                self.send_command(self.last_sent_command)
+                self.last_command_time = current_time
+                self.last_sent_command = None
 
     # ============================================================================
     # DRAWING METHODS

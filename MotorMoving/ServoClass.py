@@ -56,7 +56,7 @@ class Servo:
     __max_duty_cycle = 12.5   # 12.5% duty cycle for 180 degrees
     min_angle = 0
     max_angle = 180
-    current_angle = 0.001
+    current_angle = 0
 
     def __init__(self, pin):
         self.__initialise(pin)
@@ -101,7 +101,7 @@ class Servo:
             try:
                 # GPIO should already be initialized globally
                 GPIO.setup(pin, GPIO.OUT)
-                self.__motor = GPIO.PWM(pin, self.__servo_pwm_freq)
+                self.__motor = GPIO.PWM(pin, self.__servo_pwm_freq) # XXXX 
                 self.__motor.start(0)  # Start PWM with 0% duty cycle
             except Exception as e:
                 print(f"Warning: Failed to initialize servo on pin {pin}: {e}")
