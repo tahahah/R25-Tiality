@@ -330,7 +330,7 @@ def main():
     try:
         client.connect(args.broker, 1883, 60)
     except Exception as e:
-        logging.error("Could not connect to MQTT broker: %s", e)
+        logging.error("Could not connect to MQTT broker: %s\n at: %s; at port: %s", e,str(args.broker), str(1883))
         ctrl.cleanup()
         return
 

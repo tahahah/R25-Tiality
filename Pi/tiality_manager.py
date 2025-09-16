@@ -17,29 +17,10 @@ def main():
     parser.add_argument("--video_server", type=str, default="localhost:50051", help="Address of the video manager broker (default: localhost:50051)")
     args = parser.parse_args()
 
-    # # Setup threadsafe queue and setup command subscriber
-    # commands_queue = queue.Queue(maxsize = 1)
-    # broker_ip = "localhost"
-    # broker_port = 1883
-    # topic = "robot/tx"
-    # connection_established_event = threading.Event()
-    
-    # command_thread = threading.Thread(
-    #     target=pi_command_manager_worker,
-    #     args=(broker_ip, broker_port, PWM_frequency_hz, ramp_ms, log_level)
-    # )
-    # command_thread.start()
+    # Start video manager worker function
+    pi_video_manager_worker(args.video_server, frame_generator_picamera2)
 
     
-
-    # Setup thread safe queues, vars  and start gRPC client---
-    video_thread = threading.Thread(
-        target=pi_video_manager_worker, 
-        args=(args.video_server, frame_generator_picamera2),
-        daemon=True  # A daemon thread will exit when the main program exits.
-    )
-    video_thread.start()
-    time.sleep(60)
 
 if __name__ == "__main__":
     main()
