@@ -9,8 +9,8 @@
 
 set -e
 
-# Resolve the directory of this script so paths work regardless of CWD
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve the directory of this script so paths work regardless of CWD (POSIX)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv_pi"
 
 echo "--- Installing system packages (requires sudo) ---"
@@ -23,7 +23,7 @@ if [ -d "$VENV_DIR" ]; then
     rm -rf "$VENV_DIR"
 fi
 python3 -m venv "$VENV_DIR" --system-site-packages
-source "$VENV_DIR/bin/activate"
+. "$VENV_DIR/bin/activate"
 
 echo "--- Installing Python packages into the venv ---"
 # Intentionally omit numpy/opencv to avoid conflicts; rely on system packages
