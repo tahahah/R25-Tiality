@@ -78,7 +78,9 @@ class ExplorerGUI:
         self, 
         background_image_path: str, 
         command_callback: Optional[Callable[[str], None]] = None,
-        is_robot: bool = True
+        is_robot: bool = True,
+        mqtt_broker_host_ip: str = "localhost",
+        mqtt_port: int = 1883,
     ):
         """
         Args:
@@ -100,11 +102,26 @@ class ExplorerGUI:
         # Initialise application state
         self._init_state()
         
+        # Initialise joystick (if present)
+        try:
+            pygame.joystick.init()
+            self.joystick = None
+            if pygame.joystick.get_count() > 0:
+                self.joystick = pygame.joystick.Joystick(0)
+                if not self.joystick.get_init():
+                    self.joystick.init()
+                logger.info(f"Joystick initialised: {self.joystick.get_name()} | axes={self.joystick.get_numaxes()}")
+            else:
+                logger.info("No joystick detected")
+        except Exception as e:
+            self.joystick = None
+            logger.warning(f"Joystick init failed: {e}")
+        
         # Setup Server and shared frame queue
         self.server_manager = TialityServerManager(
             grpc_port = 50051, 
-            mqtt_port = 1883, 
-            mqtt_broker_host_ip = "localhost",
+            mqtt_port = mqtt_port, 
+            mqtt_broker_host_ip = mqtt_broker_host_ip,
             decode_video_func = _decode_video_frame_opencv,
             num_decode_video_workers = 1 # Don't change this for now
             )
@@ -219,6 +236,9 @@ class ExplorerGUI:
 
     def handle_movement(self) -> None:
         """Process current movement key states and send commands."""
+        if self.is_robot:
+            # Robot mode publishes movement in _handle_movement_keys; avoid duplicate sends
+            return
         active_movements = self._get_active_movements()
         
         if active_movements:
@@ -408,84 +428,8 @@ class ExplorerGUI:
 
         # Get movement keys from pygame
         if self.is_robot:
-            # Map joystick/keyboard to MQTT command schema understood by mqtt_to_pwm.py
-            # Read full current state so we can emit a vector or stop
-            try:
-                pygame.joystick.init()
-            except Exception:
-                pass
-
-            vx = 0.0
-            vy = 0.0
-            w = 0.0
-
-            # Joystick axes: 0=x (right +), 1=y (up -), 2=rotation (clockwise +)
-            try:
-                js_count = pygame.joystick.get_count()
-                if js_count > 0:
-                    js = pygame.joystick.Joystick(0)
-                    if not js.get_init():
-                        js.init()
-                    try:
-                        x_axis = js.get_axis(0)
-                    except Exception:
-                        x_axis = 0.0
-                    try:
-                        y_axis = js.get_axis(1)
-                    except Exception:
-                        y_axis = 0.0
-                    try:
-                        rot_axis = js.get_axis(2)
-                    except Exception:
-                        rot_axis = 0.0
-
-                    # Map to percentage [-100..100]; invert Y so up is positive
-                    JOY_MAX_SPEED = 40.0
-                    JOY_MAX_ROT = 40.0
-                    vx = max(-100.0, min(100.0, x_axis * JOY_MAX_SPEED))
-                    vy = max(-100.0, min(100.0, -y_axis * JOY_MAX_SPEED))
-                    w = max(-100.0, min(100.0, rot_axis * JOY_MAX_ROT))
-            except Exception:
-                pass
-
-            # Keyboard overrides/additions
-            pygame_keys = pygame.key.get_pressed()
-            key_speed = 50.0
-            rot_speed = 40.0
-            if pygame_keys[pygame.K_a]:
-                vx = -key_speed
-            if pygame_keys[pygame.K_d]:
-                vx = key_speed
-            if pygame_keys[pygame.K_w] or pygame_keys[pygame.K_UP]:
-                vy = key_speed
-            if pygame_keys[pygame.K_s] or pygame_keys[pygame.K_DOWN]:
-                vy = -key_speed
-            if pygame_keys[pygame.K_q]:
-                w = -rot_speed
-            if pygame_keys[pygame.K_e]:
-                w = rot_speed
-
-            # Deadzone to avoid noise
-            DEADZONE = 0.10
-            if abs(vx) < DEADZONE * 100.0:
-                vx = 0.0
-            if abs(vy) < DEADZONE * 100.0:
-                vy = 0.0
-            if abs(w) < DEADZONE * 100.0:
-                w = 0.0
-
-            # Emit command: vector if movement present, else stop
-            if (vx != 0.0) or (vy != 0.0) or (w != 0.0):
-                cmd = {"type": "vector", "action": "set", "vx": int(vx), "vy": int(vy), "w": int(w)}
-            else:
-                cmd = self.default_keys
-
-            try:
-                self.send_command(json.dumps(cmd).encode())
-            except Exception as e:
-                logger.error(f"Failed to send movement command: {e}")
-            # Keep GUI's legacy movement_keys empty in robot mode to avoid duplicate sends elsewhere
-            self.movement_keys = {}
+            # Robot motion publishing is handled each frame in update()
+            return
         else:
             pygame_keys = pygame.key.get_pressed()
             keys["up"] = pygame_keys[pygame.K_w] or pygame_keys[pygame.K_UP]
@@ -495,7 +439,75 @@ class ExplorerGUI:
             keys["left"] = pygame_keys[pygame.K_a]
             keys["right"] = pygame_keys[pygame.K_d]
         
-        self.movement_keys = keys.copy()
+        if not self.is_robot:
+            self.movement_keys = keys.copy()
+
+    def _publish_robot_motion(self) -> None:
+        """Read joystick/keyboard state and publish a single motion command."""
+        vx = 0.0
+        vy = 0.0
+        w = 0.0
+
+        try:
+            if self.joystick is not None and self.joystick.get_init():
+                try:
+                    x_axis = self.joystick.get_axis(0)
+                except Exception:
+                    x_axis = 0.0
+                try:
+                    y_axis = self.joystick.get_axis(1)
+                except Exception:
+                    y_axis = 0.0
+                try:
+                    rot_axis = self.joystick.get_axis(2)
+                except Exception:
+                    rot_axis = 0.0
+
+                JOY_MAX_SPEED = 40.0
+                JOY_MAX_ROT = 40.0
+                vx = max(-100.0, min(100.0, x_axis * JOY_MAX_SPEED))
+                vy = max(-100.0, min(100.0, -y_axis * JOY_MAX_SPEED))
+                w = max(-100.0, min(100.0, rot_axis * JOY_MAX_ROT))
+        except Exception:
+            pass
+
+        # Keyboard overrides/additions
+        pygame_keys = pygame.key.get_pressed()
+        key_speed = 50.0
+        rot_speed = 40.0
+        if pygame_keys[pygame.K_a]:
+            vx = -key_speed
+        if pygame_keys[pygame.K_d]:
+            vx = key_speed
+        if pygame_keys[pygame.K_w] or pygame_keys[pygame.K_UP]:
+            vy = key_speed
+        if pygame_keys[pygame.K_s] or pygame_keys[pygame.K_DOWN]:
+            vy = -key_speed
+        if pygame_keys[pygame.K_q]:
+            w = -rot_speed
+        if pygame_keys[pygame.K_e]:
+            w = rot_speed
+
+        # Deadzone to avoid noise
+        DEADZONE = 0.10
+        if abs(vx) < DEADZONE * 100.0:
+            vx = 0.0
+        if abs(vy) < DEADZONE * 100.0:
+            vy = 0.0
+        if abs(w) < DEADZONE * 100.0:
+            w = 0.0
+
+        # Emit command: vector if movement present, else stop
+        if (vx != 0.0) or (vy != 0.0) or (w != 0.0):
+            cmd = {"type": "vector", "action": "set", "vx": int(vx), "vy": int(vy), "w": int(w)}
+        else:
+            cmd = self.default_keys
+
+        try:
+            print(cmd)
+            self.send_command(json.dumps(cmd).encode())
+        except Exception as e:
+            logger.error(f"Failed to send movement command: {e}")
 
     def _handle_function_keys(self, event: pygame.event.Event) -> None:
         key = event.key
@@ -548,7 +560,10 @@ class ExplorerGUI:
 
     def update(self) -> None:
         """Update game state (called once per frame)."""
-        self.handle_movement()
+        if self.is_robot:
+            self._publish_robot_motion()
+        else:
+            self.handle_movement()
 
     def render(self) -> None:
         """Render the current frame."""
@@ -593,6 +608,8 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Wildlife Explorer RC Car Controller")
     parser.add_argument("--robot", action='store_true', help="Whether to run the robot or sim")
+    parser.add_argument("--broker", default="localhost", help="MQTT broker host/IP for robot mode")
+    parser.add_argument("--broker_port", type=int, default=1883, help="MQTT broker TCP port for robot mode")
     args = parser.parse_args()
     gui_type = "Robot" if args.robot else "Sim"
     print(f"Wildlife Explorer for {gui_type}")
@@ -613,7 +630,7 @@ if __name__ == "__main__":
         logger.info(f"GUI Command: {command}")
     
     try:
-        gui = ExplorerGUI(image_path, command_callback, args.robot)
+        gui = ExplorerGUI(image_path, command_callback, args.robot, mqtt_broker_host_ip=args.broker, mqtt_port=args.broker_port)
         gui.run()
     except KeyboardInterrupt:
         logger.info("Application interrupted by user")
