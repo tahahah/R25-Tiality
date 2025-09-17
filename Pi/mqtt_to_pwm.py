@@ -292,6 +292,7 @@ def handle_command(ctrl: MotorController, cmd: dict, client: mqtt.Client):
 def main():
     parser = argparse.ArgumentParser(description="MQTT -> GPIO PWM motor controller")
     parser.add_argument("--broker", default=MQTT_BROKER_HOST, help="MQTT broker host")
+    parser.add_argument("--broker_port", type=int, default=1883, help="MQTT broker TCP port (default: 1883)")
     parser.add_argument("--freq", type=int, default=PWM_FREQUENCY_HZ, help="PWM frequency in Hz")
     parser.add_argument("--ramp_ms", type=int, default=DEFAULT_RAMP_MS, help="Default ramp time for spool commands")
     parser.add_argument("--loglevel", default="info", choices=["debug", "info", "warning", "error", "critical"], help="Logging level")
@@ -314,7 +315,6 @@ def main():
 
     def on_message(cli, _userdata, msg):
         payload = msg.payload.decode("utf-8", errors="ignore")
-        logging.info("RX %s: %s", msg.topic, payload)
         cmd = parse_command(payload)
         if not cmd:
             logging.warning("Unrecognized command payload; ignoring")
@@ -328,9 +328,9 @@ def main():
     client.on_message = on_message
 
     try:
-        client.connect(args.broker, 1883, 60)
+        client.connect(args.broker, args.broker_port, 60)
     except Exception as e:
-        logging.error("Could not connect to MQTT broker: %s\n at: %s; at port: %s", e,str(args.broker), str(1883))
+        logging.error("Could not connect to MQTT broker: %s\n at: %s; at port: %s", e, str(args.broker), str(args.broker_port))
         ctrl.cleanup()
         return
 

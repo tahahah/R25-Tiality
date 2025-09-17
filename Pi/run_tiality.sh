@@ -37,9 +37,10 @@ source "$VENV_DIR/bin/activate"
 echo "--- Parsing arguments ---"
 VIDEO_SERVER=""
 BROKER=""
+BROKER_PORT="1883"
 
 usage() {
-    echo "Usage: $0 [--video_server HOST:PORT] [--broker HOST]"
+    echo "Usage: $0 [--video_server HOST:PORT] [--broker HOST] [--broker_port PORT]"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -48,6 +49,8 @@ while [[ $# -gt 0 ]]; do
             VIDEO_SERVER="$2"; shift 2;;
         --broker)
             BROKER="$2"; shift 2;;
+        --broker_port)
+            BROKER_PORT="$2"; shift 2;;
         -h|--help)
             usage; exit 0;;
         *)
@@ -61,7 +64,7 @@ else
     echo "video_server not supplied; video manager will not start"
 fi
 if [ -n "$BROKER" ]; then
-    echo "Using broker: $BROKER"
+    echo "Using broker: $BROKER:$BROKER_PORT"
 else
     echo "broker not supplied; MQTT->PWM controller will not start"
 fi
@@ -80,7 +83,7 @@ start_video_manager() {
 # Function to start MQTT->PWM controller
 start_mqtt_pwm() {
     echo "Starting MQTT->PWM controller... (Press Ctrl+C to stop all)"
-    python3 "$SCRIPT_DIR/mqtt_to_pwm.py" --broker "$BROKER" &
+    python3 "$SCRIPT_DIR/mqtt_to_pwm.py" --broker "$BROKER" --broker_port "$BROKER_PORT" &
     MQTT_PID=$!
     echo "MQTT->PWM controller started with PID $MQTT_PID."
 }
