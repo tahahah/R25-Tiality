@@ -1,0 +1,21 @@
+
+# Core scientific/codec libs (non-GUI OpenCV for servers/decoders)
+numpy
+opencv-python-headless==4.12.0.88
+
+# Networking/streaming
+paho-mqtt==2.1.0
+grpcio==1.74.0
+grpcio-tools==1.74.0
+protobuf==6.32.0
+aiortc
+av
+
+# GUI and media
+pygame==2.6.1
+pillow==11.3.0
+PyOpenGL==3.1.9
+PyOpenGL-accelerate==3.1.9
+
+# Misc utilities used outside Pi code
+pyserial==3.5
