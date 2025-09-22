@@ -87,7 +87,7 @@ class Servo:
         else:
             self.__motor.ChangeDutyCycle(duty_cycle)
         
-        sleep(0.1)  # Allow servo to reach position
+        sleep(0.02)  # Minimal delay - servo moves asynchronously
     
     def stop(self):
         if self.use_pigpio:

@@ -8,6 +8,7 @@ import cv2
 import grpc
 import numpy as np
 import paho.mqtt.client as mqtt
+import paho.mqtt as mqtt_base
 import pygame
 import queue
 
@@ -44,7 +45,11 @@ def publish_commands_worker(mqtt_port: int, broker_host_ip: str, command_queue: 
         """Publish command to appropriate topic via MQTT."""
         try:
             topic = determine_topic(command)
-            mqtt_client.publish(topic, payload=command, qos=0)
+            result = mqtt_client.publish(topic, payload=command, qos=1)  # QoS 1 = at least once delivery
+            if result.rc == 0:  # MQTT_ERR_SUCCESS
+                logging.debug(f"Command published successfully to {topic}")
+            else:
+                logging.error(f"Failed to publish command to {topic}, error code: {result.rc}")
             logging.debug(f"Published command to {topic}: {command[:100]}...")  # Log first 100 chars
         except Exception as exc:
             print(f"Failed to publish MQTT message: {exc}", exc)
@@ -55,14 +60,17 @@ def publish_commands_worker(mqtt_port: int, broker_host_ip: str, command_queue: 
     try:
         while not shutdown_event.is_set():
             try:            
-                # Attempt to retrieve new command
-                command = command_queue.get_nowait()
+                # Attempt to retrieve new command with timeout
+                command = command_queue.get(timeout=0.1)  # Wait up to 100ms for command
 
                 # Send command when available
                 publish_command(command, mqtt_client)
+                
+                # Mark task as done
+                command_queue.task_done()
 
             except queue.Empty:
-                # No command in queue
+                # No command in queue - this is normal
                 continue
 
     finally:

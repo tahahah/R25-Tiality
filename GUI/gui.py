@@ -131,9 +131,7 @@ class ExplorerGUI:
         self.clock = pygame.time.Clock()
         self.running = True
         
-        # Command throttling for servos (2Hz to prevent jitter)
-        self.last_gimbal_command_time = 0
-        self.gimbal_command_interval = 500  # milliseconds (2Hz = 1000ms/2 = 500ms)
+        # Simple gimbal command tracking
         self.last_sent_gimbal_command = None
         
         logger.info("Wildlife Explorer GUI initialised successfully")
@@ -215,45 +213,28 @@ class ExplorerGUI:
         except Exception as e:
             logger.error(f"Command callback error: {e}")
     
-    def send_gimbal_command(self, action: str, degrees: float = 5.0) -> None:
+    def send_gimbal_command(self, action: str, degrees: float = 10.0) -> None:
         """
-        Send gimbal command to Pi via MQTT with throttling to prevent servo jitter
+        Send gimbal command to Pi via MQTT - immediate response
         
         Args:
             action: The gimbal action (x_left, x_right, y_up, y_down, c_up, c_down, center)
-            degrees: How many degrees to move (default 5.0)
+            degrees: How many degrees to move (default 10.0)
         """
-        current_time = pygame.time.get_ticks()
-        
-        # Check if enough time has passed since last gimbal command (2Hz throttling)
-        if current_time - self.last_gimbal_command_time < self.gimbal_command_interval:
-            logger.debug(f"Gimbal command throttled: {action} (too soon)")
-            return
-        
         cmd = {
             "type": "gimbal",
             "action": action,
             "degrees": degrees
         }
         
-        command_str = json.dumps(cmd)
-        
-        # Prevent sending duplicate commands too frequently
-        if command_str == self.last_sent_gimbal_command:
-            logger.debug(f"Duplicate gimbal command ignored: {action}")
-            return
-        
         try:
-            command_json = command_str.encode()
+            command_json = json.dumps(cmd).encode()
+            logger.info(f"Sending gimbal command: {cmd}")
             self.send_command(command_json)
-            
-            # Update throttling state
-            self.last_gimbal_command_time = current_time
-            self.last_sent_gimbal_command = command_str
-            
-            logger.info(f"Gimbal command sent: {cmd}")
+            logger.info(f"Gimbal command queued successfully: {cmd}")
         except Exception as e:
             logger.error(f"Failed to send gimbal command: {e}")
+            raise
 
     def set_connection_status(self, status: ConnectionStatus) -> None:
         """TODO: Set connection for GUI idk if you want to open a socket and send over on a port"""
@@ -415,7 +396,7 @@ class ExplorerGUI:
             "  ESC - Exit",
             "",
             "GIMBAL SETTINGS:",
-            f"  Command Rate: {1000//self.gimbal_command_interval}Hz (throttled to prevent jitter)",
+            "  Direct Control: Each key press = 10° movement",
             "",
             "Press any key to close help"
         ]
@@ -604,15 +585,8 @@ class ExplorerGUI:
             self.send_gimbal_command("x_right")
     
     def _handle_gimbal_key_release(self, event: pygame.event.Event) -> None:
-        """Reset duplicate command check when gimbal keys are released"""
-        gimbal_keys = {
-            pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT,
-            pygame.K_x, pygame.K_c
-        }
-        
-        if event.key in gimbal_keys:
-            # Reset duplicate command check to allow repeating movements
-            self.last_sent_gimbal_command = None
+        """Handle gimbal key releases (currently no action needed)"""
+        pass
 
     def handle_events(self) -> None:
         """Handle all pygame events."""
