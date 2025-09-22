@@ -8,8 +8,12 @@ PI_IP = "10.1.1.228"
 PI_MQTT_PORT = 2883
 
 # MQTT Topics
-MQTT_TOPIC_TX = "robot/tx"  # Commands to Pi
-MQTT_TOPIC_RX = "robot/rx"  # Responses from Pi
+MQTT_TOPIC_TX = "robot/tx"  # Vehicle commands to Pi
+MQTT_TOPIC_RX = "robot/rx"  # Vehicle responses from Pi
+
+# Gimbal-specific MQTT topics
+GIMBAL_TOPIC_TX = "robot/gimbal/tx"  # Gimbal commands to Pi
+GIMBAL_TOPIC_RX = "robot/gimbal/rx"  # Gimbal responses from Pi
 
 # Network Settings
 MQTT_KEEPALIVE = 60

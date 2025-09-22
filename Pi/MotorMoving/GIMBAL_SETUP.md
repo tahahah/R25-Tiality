@@ -115,16 +115,16 @@ You can test using any MQTT client (like Mosquitto):
 
 ```bash
 # Move left 20 degrees
-mosquitto_pub -h YOUR_PI_IP -t "robot/tx" -m '{"type":"gimbal","action":"x_left","degrees":20}'
+mosquitto_pub -h YOUR_PI_IP -t "robot/gimbal/tx" -m '{"type":"gimbal","action":"x_left","degrees":20}'
 
 # Move crane up 15 degrees
-mosquitto_pub -h YOUR_PI_IP -t "robot/tx" -m '{"type":"gimbal","action":"c_up","degrees":15}'
+mosquitto_pub -h YOUR_PI_IP -t "robot/gimbal/tx" -m '{"type":"gimbal","action":"c_up","degrees":15}'
 
 # Center gimbal
-mosquitto_pub -h YOUR_PI_IP -t "robot/tx" -m '{"type":"gimbal","action":"center"}'
+mosquitto_pub -h YOUR_PI_IP -t "robot/gimbal/tx" -m '{"type":"gimbal","action":"center"}'
 
 # Get position
-mosquitto_pub -h YOUR_PI_IP -t "robot/tx" -m '{"type":"gimbal","action":"position"}'
+mosquitto_pub -h YOUR_PI_IP -t "robot/gimbal/tx" -m '{"type":"gimbal","action":"position"}'
 ```
 
 ### Common Issues
@@ -169,7 +169,22 @@ Your enhanced `mqtt_to_pwm.py` now handles both motor and gimbal commands:
 - **Gimbal commands**: `{"type": "gimbal", "action": "x_left", ...}`
 - **Vector commands**: `{"type": "vector", "action": "set", ...}`
 
-All commands go through the same MQTT topics (`robot/tx` and `robot/rx`).
+Gimbal commands use dedicated MQTT topics (`robot/gimbal/tx` and `robot/gimbal/rx`) for better separation from vehicle movement commands.
+
+## 📡 MQTT Topic Architecture
+
+The system now uses separate topics for different subsystems:
+
+- **`robot/tx`** - Vehicle movement commands (WASD, joystick)
+- **`robot/rx`** - Vehicle movement responses
+- **`robot/gimbal/tx`** - Gimbal control commands (arrow keys, X/C)
+- **`robot/gimbal/rx`** - Gimbal control responses
+
+### Benefits:
+- ✅ **Clean separation** - No command cross-contamination
+- ✅ **Better performance** - Targeted message processing
+- ✅ **Easy debugging** - Monitor specific subsystems
+- ✅ **Scalable** - Easy to add new subsystems
 
 ## 🚀 Next Steps
 

@@ -15,7 +15,7 @@ import os
 import paho.mqtt.client as mqtt
 
 # Import config
-from config import PI_IP, MQTT_TOPIC_TX, MQTT_TOPIC_RX, PI_MQTT_PORT, GIMBAL_PIN_X, GIMBAL_PIN_Y, GIMBAL_PIN_C
+from config import PI_IP, GIMBAL_TOPIC_TX, GIMBAL_TOPIC_RX, PI_MQTT_PORT, GIMBAL_PIN_X, GIMBAL_PIN_Y, GIMBAL_PIN_C
 
 try:
     import RPi.GPIO as GPIO
@@ -58,8 +58,8 @@ def main():
     def on_connect(cli, _userdata, _flags, rc):
         if rc == 0:
             logging.info("Connected to MQTT broker at %s", args.broker)
-            cli.subscribe(MQTT_TOPIC_TX)
-            logging.info("Subscribed to %s", MQTT_TOPIC_TX)
+            cli.subscribe(GIMBAL_TOPIC_TX)
+            logging.info("Subscribed to %s", GIMBAL_TOPIC_TX)
         else:
             logging.error("Failed to connect to MQTT broker rc=%s", rc)
 
@@ -80,31 +80,31 @@ def main():
                 try:
                     if action == "x_left":
                         gimbal.x_left(degrees)
-                        cli.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "x_left", "degrees": degrees}))
+                        cli.publish(GIMBAL_TOPIC_RX, json.dumps({"status": "gimbal", "action": "x_left", "degrees": degrees}))
                     elif action == "x_right":
                         gimbal.x_right(degrees)
-                        cli.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "x_right", "degrees": degrees}))
+                        cli.publish(GIMBAL_TOPIC_RX, json.dumps({"status": "gimbal", "action": "x_right", "degrees": degrees}))
                     elif action == "y_up":
                         gimbal.y_up(degrees)
-                        cli.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "y_up", "degrees": degrees}))
+                        cli.publish(GIMBAL_TOPIC_RX, json.dumps({"status": "gimbal", "action": "y_up", "degrees": degrees}))
                     elif action == "y_down":
                         gimbal.y_down(degrees)
-                        cli.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "y_down", "degrees": degrees}))
+                        cli.publish(GIMBAL_TOPIC_RX, json.dumps({"status": "gimbal", "action": "y_down", "degrees": degrees}))
                     elif action == "c_up":
                         gimbal.c_up(degrees)
-                        cli.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "c_up", "degrees": degrees}))
+                        cli.publish(GIMBAL_TOPIC_RX, json.dumps({"status": "gimbal", "action": "c_up", "degrees": degrees}))
                     elif action == "c_down":
                         gimbal.c_down(degrees)
-                        cli.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "c_down", "degrees": degrees}))
+                        cli.publish(GIMBAL_TOPIC_RX, json.dumps({"status": "gimbal", "action": "c_down", "degrees": degrees}))
                     elif action == "center":
                         gimbal.center_gimbal()
-                        cli.publish(MQTT_TOPIC_RX, json.dumps({"status": "gimbal", "action": "center"}))
+                        cli.publish(GIMBAL_TOPIC_RX, json.dumps({"status": "gimbal", "action": "center"}))
                     else:
-                        cli.publish(MQTT_TOPIC_RX, json.dumps({"status": "error", "message": f"Unknown gimbal action: {action}"}))
+                        cli.publish(GIMBAL_TOPIC_RX, json.dumps({"status": "error", "message": f"Unknown gimbal action: {action}"}))
                         
                 except Exception as e:
                     logging.error(f"Error handling gimbal command: {e}")
-                    cli.publish(MQTT_TOPIC_RX, json.dumps({"status": "error", "message": str(e)}))
+                    cli.publish(GIMBAL_TOPIC_RX, json.dumps({"status": "error", "message": str(e)}))
             else:
                 logging.warning("Non-gimbal command ignored: %s", cmd)
                 

@@ -31,8 +31,13 @@ class TialityServerManager:
         self.grpc_port = grpc_port
         self.mqtt_port = mqtt_port
         self.mqtt_broker_host_ip = mqtt_broker_host_ip  # Change to your laptop/host running Mosquitto
-        self.tx_topic = "robot/tx"
-        self.rx_topic = "robot/rx"
+        # Vehicle movement topics
+        self.vehicle_tx_topic = "robot/tx"
+        self.vehicle_rx_topic = "robot/rx"
+        
+        # Gimbal control topics
+        self.gimbal_tx_topic = "robot/gimbal/tx"
+        self.gimbal_rx_topic = "robot/gimbal/rx"
         
         self._connection_manager_thread = None
 
@@ -80,8 +85,9 @@ class TialityServerManager:
                 self.decoded_video_queue, 
                 self.mqtt_broker_host_ip, 
                 self.mqtt_port, 
-                self.tx_topic, 
-                self.rx_topic, 
+                self.vehicle_tx_topic,
+                self.gimbal_tx_topic, 
+                self.vehicle_rx_topic, 
                 self.command_queue, 
                 self.connection_established_event, 
                 self.shutdown_event,
