@@ -131,6 +131,11 @@ class ExplorerGUI:
         self.clock = pygame.time.Clock()
         self.running = True
         
+        # Command throttling for servos (2Hz to prevent jitter)
+        self.last_gimbal_command_time = 0
+        self.gimbal_command_interval = 500  # milliseconds (2Hz = 1000ms/2 = 500ms)
+        self.last_sent_gimbal_command = None
+        
         logger.info("Wildlife Explorer GUI initialised successfully")
 
     # ============================================================================
@@ -209,6 +214,46 @@ class ExplorerGUI:
             logger.debug(f"Command sent: {command}")
         except Exception as e:
             logger.error(f"Command callback error: {e}")
+    
+    def send_gimbal_command(self, action: str, degrees: float = 5.0) -> None:
+        """
+        Send gimbal command to Pi via MQTT with throttling to prevent servo jitter
+        
+        Args:
+            action: The gimbal action (x_left, x_right, y_up, y_down, c_up, c_down, center)
+            degrees: How many degrees to move (default 5.0)
+        """
+        current_time = pygame.time.get_ticks()
+        
+        # Check if enough time has passed since last gimbal command (2Hz throttling)
+        if current_time - self.last_gimbal_command_time < self.gimbal_command_interval:
+            logger.debug(f"Gimbal command throttled: {action} (too soon)")
+            return
+        
+        cmd = {
+            "type": "gimbal",
+            "action": action,
+            "degrees": degrees
+        }
+        
+        command_str = json.dumps(cmd)
+        
+        # Prevent sending duplicate commands too frequently
+        if command_str == self.last_sent_gimbal_command:
+            logger.debug(f"Duplicate gimbal command ignored: {action}")
+            return
+        
+        try:
+            command_json = command_str.encode()
+            self.send_command(command_json)
+            
+            # Update throttling state
+            self.last_gimbal_command_time = current_time
+            self.last_sent_gimbal_command = command_str
+            
+            logger.info(f"Gimbal command sent: {cmd}")
+        except Exception as e:
+            logger.error(f"Failed to send gimbal command: {e}")
 
     def set_connection_status(self, status: ConnectionStatus) -> None:
         """TODO: Set connection for GUI idk if you want to open a socket and send over on a port"""
@@ -360,14 +405,17 @@ class ExplorerGUI:
             "WILDLIFE EXPLORER - RC Buggy",
             "",
             "KEYBOARD CONTROLS:",
-            "  WASD / Arrow Keys - Move car",
-            " E/R - Rotate Car"
+            "  WASD - Move car",
+            "  Q/E - Rotate Car",
+            "  Arrow Keys - Control gimbal X/Y axes",
+            "  X/C - Control crane servo up/down",
             "  Space - Emergency stop",
             "  TODO: 1, 2 - Toggle cameras",
-            "  TODO: X - Extend arm",
-            "  TODO: C - Contract arm",
             "  H - Show/hide this help",
             "  ESC - Exit",
+            "",
+            "GIMBAL SETTINGS:",
+            f"  Command Rate: {1000//self.gimbal_command_interval}Hz (throttled to prevent jitter)",
             "",
             "Press any key to close help"
         ]
@@ -432,8 +480,8 @@ class ExplorerGUI:
             return
         else:
             pygame_keys = pygame.key.get_pressed()
-            keys["up"] = pygame_keys[pygame.K_w] or pygame_keys[pygame.K_UP]
-            keys["down"] = pygame_keys[pygame.K_s] or pygame_keys[pygame.K_DOWN]
+            keys["up"] = pygame_keys[pygame.K_w]
+            keys["down"] = pygame_keys[pygame.K_s]
             keys["rotate_left"] = pygame_keys[pygame.K_q]
             keys["rotate_right"] = pygame_keys[pygame.K_e]
             keys["left"] = pygame_keys[pygame.K_a]
@@ -479,9 +527,9 @@ class ExplorerGUI:
             vx = -key_speed
         if pygame_keys[pygame.K_d]:
             vx = key_speed
-        if pygame_keys[pygame.K_w] or pygame_keys[pygame.K_UP]:
+        if pygame_keys[pygame.K_w]:
             vy = key_speed
-        if pygame_keys[pygame.K_s] or pygame_keys[pygame.K_DOWN]:
+        if pygame_keys[pygame.K_s]:
             vy = -key_speed
         if pygame_keys[pygame.K_q]:
             w = -rot_speed
@@ -522,7 +570,9 @@ class ExplorerGUI:
         elif key in (pygame.K_1, pygame.K_2):
             self._handle_camera_toggle(key)
         elif key in (pygame.K_x, pygame.K_c):
-            self._handle_arm_control(key)
+            self._handle_gimbal_crane_control(key)
+        elif key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT):
+            self._handle_gimbal_arrow_keys(key)
 
     def _handle_camera_toggle(self, key: int) -> None:
         camera_index = 0 if key == pygame.K_1 else 1
@@ -535,13 +585,34 @@ class ExplorerGUI:
         
         #self.send_command(command)
 
-    def _handle_arm_control(self, key: int) -> None:
+    def _handle_gimbal_crane_control(self, key: int) -> None:
+        """Handle X and C keys for crane servo control"""
         if key == pygame.K_x:
-            self.arm_state = ArmState.EXTENDED
-            #self.send_command('ARM_EXTEND')
+            self.send_gimbal_command("c_up")
         elif key == pygame.K_c:
-            self.arm_state = ArmState.RETRACTED
-            #self.send_command('ARM_CONTRACT')
+            self.send_gimbal_command("c_down")
+    
+    def _handle_gimbal_arrow_keys(self, key: int) -> None:
+        """Handle arrow keys for X/Y axis gimbal control"""
+        if key == pygame.K_UP:
+            self.send_gimbal_command("y_up")
+        elif key == pygame.K_DOWN:
+            self.send_gimbal_command("y_down")
+        elif key == pygame.K_LEFT:
+            self.send_gimbal_command("x_left")
+        elif key == pygame.K_RIGHT:
+            self.send_gimbal_command("x_right")
+    
+    def _handle_gimbal_key_release(self, event: pygame.event.Event) -> None:
+        """Reset duplicate command check when gimbal keys are released"""
+        gimbal_keys = {
+            pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT,
+            pygame.K_x, pygame.K_c
+        }
+        
+        if event.key in gimbal_keys:
+            # Reset duplicate command check to allow repeating movements
+            self.last_sent_gimbal_command = None
 
     def handle_events(self) -> None:
         """Handle all pygame events."""
@@ -553,6 +624,7 @@ class ExplorerGUI:
                 self._handle_function_keys(event)
             elif event.type == pygame.KEYUP:
                 self._handle_movement_keys(event, False)
+                self._handle_gimbal_key_release(event)
 
     # ============================================================================
     # MAIN LOOP METHODS
