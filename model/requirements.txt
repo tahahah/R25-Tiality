@@ -4,3 +4,8 @@ torch
 Pillow
 tqdm
 numpy
+scipy
+wandb
+python-dotenv
+timm
+scikit-learn
