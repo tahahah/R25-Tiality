@@ -1,0 +1,6 @@
+# Requirements for GroundingDINO auto-labeling
+transformers
+torch
+Pillow
+tqdm
+numpy

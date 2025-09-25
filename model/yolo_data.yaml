@@ -1,0 +1,12 @@
+path: yolo_data
+train: images/train
+val: images/val
+names:
+  0: cockatoo
+  1: croc
+  2: frog
+  3: kangaroo
+  4: koala
+  5: platypus
+  6: tasmanian devil
+  7: wombat
