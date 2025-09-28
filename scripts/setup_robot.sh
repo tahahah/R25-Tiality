@@ -128,12 +128,28 @@ ssh_run() {
 }
 
 nc_probe() {
-    # BSD netcat (macOS) supports -G for connect timeout; GNU netcat uses -w
-    if nc -h 2>&1 | grep -q "\-G"; then
-        nc -z -G 2 "$1" "$2" >/dev/null 2>&1
+    # Robustly detect BSD vs GNU flags without tripping 'set -e -o pipefail'
+    local host="$1" port="$2"
+    local nc_help
+    nc_help="$(nc -h 2>&1 || true)"
+    if echo "$nc_help" | grep -q "\\-G"; then
+        # BSD netcat (macOS) uses -G for timeout (seconds)
+        nc -z -G 2 "$host" "$port" >/dev/null 2>&1
     else
-        nc -z -w 2 "$1" "$2" >/dev/null 2>&1
+        # GNU netcat commonly uses -w for timeout
+        nc -z -w 2 "$host" "$port" >/dev/null 2>&1
     fi
+}
+
+# Prefer publishing a tiny message with mosquitto_pub when available; fall back to nc
+mqtt_probe() {
+    local host="$1" port="$2"
+    if command -v mosquitto_pub >/dev/null 2>&1; then
+        local topic="__probe__/$(date +%s)/$$"
+        mosquitto_pub -h "$host" -p "$port" -t "$topic" -m ping -q 0 >/dev/null 2>&1
+        return $?
+    fi
+    nc_probe "$host" "$port"
 }
 
 split_csv_to_array() {
@@ -151,16 +167,36 @@ split_csv_to_array() {
 }
 
 discover_broker() {
-    local -a hosts; split_csv_to_array "$BROKER_CANDIDATES" hosts
-    local -a ports; split_csv_to_array "$BROKER_PORTS" ports
+    local hosts_csv="$BROKER_CANDIDATES"
+    local ports_csv="$BROKER_PORTS"
 
-    for host in "${hosts[@]}"; do
-        for port in "${ports[@]}"; do
-            echo "Probing MQTT broker at $host:$port ..."
-            if nc_probe "$host" "$port"; then
-                echo "Found MQTT broker at $host:$port"
-                echo "$host:$port"
-                return 0
+    for host in ${hosts_csv//,/ }; do
+        for port in ${ports_csv//,/ }; do
+            if [[ -z "$host" || -z "$port" ]]; then
+                continue
+            fi
+            if [[ "$host" == "0.0.0.0" ]]; then
+                echo "Skipping non-routable candidate 0.0.0.0" >&2
+                continue
+            fi
+            echo "Probing MQTT broker at $host:$port ..." >&2
+            if command -v mosquitto_pub >/dev/null 2>&1; then
+                local topic="__probe__/$(date +%s)/$$"
+                if mosquitto_pub -h "$host" -p "$port" -t "$topic" -m ping -q 0 >/dev/null 2>&1; then
+                    echo "Found MQTT broker at $host:$port" >&2
+                    printf '%s:%s\n' "$host" "$port"
+                    return 0
+                else
+                    echo "Probe failed via mosquitto_pub to $host:$port" >&2
+                fi
+            else
+                if nc_probe "$host" "$port"; then
+                    echo "Found MQTT broker at $host:$port" >&2
+                    printf '%s:%s\n' "$host" "$port"
+                    return 0
+                else
+                    echo "Probe failed via nc to $host:$port" >&2
+                fi
             fi
         done
     done
@@ -168,11 +204,14 @@ discover_broker() {
 }
 
 discover_pi() {
-    local -a hosts; split_csv_to_array "$PI_CANDIDATES" hosts
-    for host in "${hosts[@]}"; do
-        echo "Probing Pi at $PI_USER@$host (SSH) ..."
+    local hosts_csv="$PI_CANDIDATES"
+    for host in ${hosts_csv//,/ }; do
+        if [[ -z "$host" ]]; then
+            continue
+        fi
+        echo "Probing Pi at $PI_USER@$host (SSH) ..." >&2
         if ssh_run "$host" "echo ok" >/dev/null 2>&1; then
-            echo "Found Pi at $host"
+            echo "Found Pi at $host" >&2
             echo "$host"
             return 0
         fi
