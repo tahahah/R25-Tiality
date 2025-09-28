@@ -1,5 +1,6 @@
 import threading
 import queue
+import logging
 from typing import Callable
 from .server_utils import _connection_manager_worker
 
@@ -25,14 +26,19 @@ class TialityServerManager:
         # Define shared, thread-safe queues
         self.incoming_video_queue = queue.Queue(maxsize=1)
         self.decoded_video_queue = queue.Queue(maxsize=1)
-        self.command_queue = queue.Queue(maxsize=1)
+        self.command_queue = queue.Queue(maxsize=5)  # Increased queue size to prevent dropping
 
         # Change to your Raspberry Pi's IP
         self.grpc_port = grpc_port
         self.mqtt_port = mqtt_port
         self.mqtt_broker_host_ip = mqtt_broker_host_ip  # Change to your laptop/host running Mosquitto
-        self.tx_topic = "robot/tx"
-        self.rx_topic = "robot/rx"
+        # Vehicle movement topics
+        self.vehicle_tx_topic = "robot/tx"
+        self.vehicle_rx_topic = "robot/rx"
+        
+        # Gimbal control topics
+        self.gimbal_tx_topic = "robot/gimbal/tx"
+        self.gimbal_rx_topic = "robot/gimbal/rx"
         
         self._connection_manager_thread = None
 
@@ -53,18 +59,18 @@ class TialityServerManager:
     def send_command(self, command):
         if self.servers_active:
             try:
-                # Clear any old command that hasn't been sent yet.
-                self.command_queue.get_nowait() 
-            except queue.Empty:
-                # This is normal, the queue was already empty.
-                pass
-
-            try:
-                # Put the newest, most relevant command into the queue.
+                # Put command into the queue - don't clear existing commands!
                 self.command_queue.put_nowait(command)
+                logging.debug(f"Command queued successfully: {command[:50]}...")
             except queue.Full:
-                # Sender is processing a command already.
-                pass
+                # If queue is full, try to clear old command and add new one
+                try:
+                    old_cmd = self.command_queue.get_nowait()
+                    self.command_queue.put_nowait(command)
+                    logging.warning(f"Queue full - replaced old command: {old_cmd[:30]}... with new: {command[:30]}...")
+                except (queue.Empty, queue.Full):
+                    logging.error(f"Failed to queue command: {command[:50]}...")
+                    pass
 
     def start_servers(self):
         """
@@ -80,8 +86,9 @@ class TialityServerManager:
                 self.decoded_video_queue, 
                 self.mqtt_broker_host_ip, 
                 self.mqtt_port, 
-                self.tx_topic, 
-                self.rx_topic, 
+                self.vehicle_tx_topic,
+                self.gimbal_tx_topic, 
+                self.vehicle_rx_topic, 
                 self.command_queue, 
                 self.connection_established_event, 
                 self.shutdown_event,

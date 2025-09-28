@@ -5,7 +5,7 @@ from .video_streaming import server as video_server
 from .video_streaming import decoder_worker
 from .command_streaming import publisher as command_publisher
 
-def _connection_manager_worker(grpc_port, incoming_video_queue, decoded_video_queue, mqtt_broker_host_ip, mqtt_port, tx_topic, rx_topic, command_queue, connection_established_event, shutdown_event, decode_video_func, num_decode_video_workers):
+def _connection_manager_worker(grpc_port, incoming_video_queue, decoded_video_queue, mqtt_broker_host_ip, mqtt_port, vehicle_tx_topic, gimbal_tx_topic, rx_topic, command_queue, connection_established_event, shutdown_event, decode_video_func, num_decode_video_workers):
     """
     Thread to manage all connections.
     These threads include:
@@ -17,7 +17,8 @@ def _connection_manager_worker(grpc_port, incoming_video_queue, decoded_video_qu
         decoded_video_queue (_type_): _description_
         mqtt_broker_host_ip (_type_): _description_
         mqtt_port (_type_): _description_
-        tx_topic (_type_): _description_
+        vehicle_tx_topic (_type_): Vehicle movement commands topic
+        gimbal_tx_topic (_type_): Gimbal control commands topic
         rx_topic (_type_): _description_
         command_queue (_type_): _description_
         connection_established_event (_type_): _description_
@@ -70,7 +71,8 @@ def _connection_manager_worker(grpc_port, incoming_video_queue, decoded_video_qu
                             mqtt_port, 
                             mqtt_broker_host_ip, 
                             command_queue, 
-                            tx_topic, 
+                            vehicle_tx_topic,
+                            gimbal_tx_topic, 
                             shutdown_event
                             ))
                     command_sender_thread.start()

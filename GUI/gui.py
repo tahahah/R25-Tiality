@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import os
 import json
-from typing import Callable, Optional, List
+from typing import Callable, Optional, Mapping
 from gui_config import ConnectionStatus, ArmState, Colour, GuiConfig
 
 # Get the parent directory path
@@ -131,6 +131,23 @@ class ExplorerGUI:
         self.clock = pygame.time.Clock()
         self.running = True
         
+        # Simple gimbal command tracking
+        self.last_sent_gimbal_command = None
+        
+        # Controller mappings (defaults for common Xbox/SDL layout)
+        self.RIGHT_STICK_X_AXIS = 2  # Right stick horizontal
+        self.RIGHT_STICK_Y_AXIS = 3  # Right stick vertical
+        self.BUTTON_LB = 4           # Left bumper
+        self.BUTTON_RB = 5           # Right bumper
+        
+        # Gimbal control via right stick: threshold and dynamic rate/step
+        self.GIMBAL_AXIS_THRESHOLD = 0.25
+        self.GIMBAL_MIN_DEGREES = 2.0
+        self.GIMBAL_MAX_DEGREES = 10.0
+        self.GIMBAL_MIN_COOLDOWN_MS = 40
+        self.GIMBAL_MAX_COOLDOWN_MS = 220
+        self._last_gimbal_axis_send_ms = {"x": 0, "y": 0}
+        
         logger.info("Wildlife Explorer GUI initialised successfully")
 
     # ============================================================================
@@ -209,6 +226,29 @@ class ExplorerGUI:
             logger.debug(f"Command sent: {command}")
         except Exception as e:
             logger.error(f"Command callback error: {e}")
+    
+    def send_gimbal_command(self, action: str, degrees: float = 10.0) -> None:
+        """
+        Send gimbal command to Pi via MQTT - immediate response
+        
+        Args:
+            action: The gimbal action (x_left, x_right, y_up, y_down, c_up, c_down, center)
+            degrees: How many degrees to move (default 10.0)
+        """
+        cmd = {
+            "type": "gimbal",
+            "action": action,
+            "degrees": degrees
+        }
+        
+        try:
+            command_json = json.dumps(cmd)
+            logger.info(f"Sending gimbal command: {cmd}")
+            self.send_command(command_json)
+            logger.info(f"Gimbal command queued successfully: {cmd}")
+        except Exception as e:
+            logger.error(f"Failed to send gimbal command: {e}")
+            raise
 
     def set_connection_status(self, status: ConnectionStatus) -> None:
         """TODO: Set connection for GUI idk if you want to open a socket and send over on a port"""
@@ -222,7 +262,7 @@ class ExplorerGUI:
     # MOVEMENT HANDLING
     # ============================================================================
 
-    def _get_active_movements(self) -> List[str]:
+    def _get_active_movements(self) -> Mapping[str, object]:
         """
         Get list of currently active movement directions.
         """
@@ -245,8 +285,7 @@ class ExplorerGUI:
             # Build movement command from active directions
             
             json_string = json.dumps(active_movements)
-            encoded_string = json_string.encode()
-            self.send_command(encoded_string)
+            self.send_command(json_string)
 
     # ============================================================================
     # DRAWING METHODS
@@ -360,14 +399,17 @@ class ExplorerGUI:
             "WILDLIFE EXPLORER - RC Buggy",
             "",
             "KEYBOARD CONTROLS:",
-            "  WASD / Arrow Keys - Move car",
-            " E/R - Rotate Car"
+            "  WASD - Move car",
+            "  Q/E - Rotate Car",
+            "  Arrow Keys - Control gimbal X/Y axes",
+            "  X/C - Control crane servo up/down",
             "  Space - Emergency stop",
             "  TODO: 1, 2 - Toggle cameras",
-            "  TODO: X - Extend arm",
-            "  TODO: C - Contract arm",
             "  H - Show/hide this help",
             "  ESC - Exit",
+            "",
+            "GIMBAL SETTINGS:",
+            "  Direct Control: Each key press = 10° movement",
             "",
             "Press any key to close help"
         ]
@@ -432,8 +474,8 @@ class ExplorerGUI:
             return
         else:
             pygame_keys = pygame.key.get_pressed()
-            keys["up"] = pygame_keys[pygame.K_w] or pygame_keys[pygame.K_UP]
-            keys["down"] = pygame_keys[pygame.K_s] or pygame_keys[pygame.K_DOWN]
+            keys["up"] = pygame_keys[pygame.K_w]
+            keys["down"] = pygame_keys[pygame.K_s]
             keys["rotate_left"] = pygame_keys[pygame.K_q]
             keys["rotate_right"] = pygame_keys[pygame.K_e]
             keys["left"] = pygame_keys[pygame.K_a]
@@ -457,6 +499,7 @@ class ExplorerGUI:
                     y_axis = self.joystick.get_axis(0)
                 except Exception:
                     y_axis = 0.0
+
                 try:
                     rot_axis = self.joystick.get_axis(1)
                 except Exception:
@@ -471,12 +514,13 @@ class ExplorerGUI:
                     back_axle_axis = 0.0
 
                 JOY_MAX_SPEED = 40.0
-                JOY_MAX_ROT = 40.0
                 vx = max(-100.0, min(100.0, x_axis * JOY_MAX_SPEED))
                 vy = max(-100.0, min(100.0, -y_axis * JOY_MAX_SPEED))
+
                 w = max(-100.0, min(100.0, rot_axis * JOY_MAX_ROT))
                 vy_front = max(-100.0, min(100.0, front_axle_axis * JOY_MAX_SPEED))
                 vy_back = max(-100.0, min(100.0, back_axle_axis * JOY_MAX_SPEED))
+
         except Exception:
             pass
 
@@ -488,9 +532,9 @@ class ExplorerGUI:
             vx = -key_speed
         if pygame_keys[pygame.K_d]:
             vx = key_speed
-        if pygame_keys[pygame.K_w] or pygame_keys[pygame.K_UP]:
+        if pygame_keys[pygame.K_w]:
             vy = key_speed
-        if pygame_keys[pygame.K_s] or pygame_keys[pygame.K_DOWN]:
+        if pygame_keys[pygame.K_s]:
             vy = -key_speed
         if pygame_keys[pygame.K_q]:
             w = -rot_speed
@@ -516,7 +560,7 @@ class ExplorerGUI:
 
         try:
             print(cmd)
-            self.send_command(json.dumps(cmd).encode())
+            self.send_command(json.dumps(cmd))
         except Exception as e:
             logger.error(f"Failed to send movement command: {e}")
 
@@ -533,26 +577,39 @@ class ExplorerGUI:
         elif key in (pygame.K_1, pygame.K_2):
             self._handle_camera_toggle(key)
         elif key in (pygame.K_x, pygame.K_c):
-            self._handle_arm_control(key)
+            self._handle_gimbal_crane_control(key)
+        elif key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT):
+            self._handle_gimbal_arrow_keys(key)
 
     def _handle_camera_toggle(self, key: int) -> None:
         camera_index = 0 if key == pygame.K_1 else 1
         self.camera_states[camera_index] = not self.camera_states[camera_index]
         
-        # Send appropriate command
-        camera_number = camera_index + 1
-        state = "ON" if self.camera_states[camera_index] else "OFF"
-        command = f'CAMERA_{camera_number}_{state}'
+        # Send appropriate command (intentionally not sent from GUI currently)
         
         #self.send_command(command)
 
-    def _handle_arm_control(self, key: int) -> None:
+    def _handle_gimbal_crane_control(self, key: int) -> None:
+        """Handle X and C keys for crane servo control"""
         if key == pygame.K_x:
-            self.arm_state = ArmState.EXTENDED
-            #self.send_command('ARM_EXTEND')
+            self.send_gimbal_command("c_up")
         elif key == pygame.K_c:
-            self.arm_state = ArmState.RETRACTED
-            #self.send_command('ARM_CONTRACT')
+            self.send_gimbal_command("c_down")
+    
+    def _handle_gimbal_arrow_keys(self, key: int) -> None:
+        """Handle arrow keys for X/Y axis gimbal control"""
+        if key == pygame.K_UP:
+            self.send_gimbal_command("y_up")
+        elif key == pygame.K_DOWN:
+            self.send_gimbal_command("y_down")
+        elif key == pygame.K_LEFT:
+            self.send_gimbal_command("x_left")
+        elif key == pygame.K_RIGHT:
+            self.send_gimbal_command("x_right")
+    
+    def _handle_gimbal_key_release(self, event: pygame.event.Event) -> None:
+        """Handle gimbal key releases (currently no action needed)"""
+        pass
 
     def handle_events(self) -> None:
         """Handle all pygame events."""
@@ -564,6 +621,67 @@ class ExplorerGUI:
                 self._handle_function_keys(event)
             elif event.type == pygame.KEYUP:
                 self._handle_movement_keys(event, False)
+                self._handle_gimbal_key_release(event)
+            elif event.type == pygame.JOYBUTTONDOWN:
+                # Map RB/LB to crane up/down
+                if event.button == self.BUTTON_RB:
+                    self.send_gimbal_command("c_up")
+                elif event.button == self.BUTTON_LB:
+                    self.send_gimbal_command("c_down")
+
+    def _send_gimbal_action_with_throttle(self, axis_key: str, action: str, degrees: float, cooldown_ms: int) -> None:
+        """Send a gimbal action with degrees if axis cooldown elapsed (axis_key: "x"|"y")."""
+        now_ms = pygame.time.get_ticks()
+        last_ms = self._last_gimbal_axis_send_ms.get(axis_key, 0)
+        if (now_ms - last_ms) >= cooldown_ms:
+            self.send_gimbal_command(action, degrees=degrees)
+            self._last_gimbal_axis_send_ms[axis_key] = now_ms
+
+    def _update_gimbal_from_controller(self) -> None:
+        """Read right joystick axes and map to gimbal X/Y controls with throttling."""
+        try:
+            if self.joystick is None or not self.joystick.get_init():
+                return
+            try:
+                right_x = self.joystick.get_axis(self.RIGHT_STICK_X_AXIS)
+            except Exception:
+                right_x = 0.0
+            try:
+                right_y = self.joystick.get_axis(self.RIGHT_STICK_Y_AXIS)
+            except Exception:
+                right_y = 0.0
+
+            thr = self.GIMBAL_AXIS_THRESHOLD
+
+            def calc_params(val: float) -> tuple[float, int]:
+                mag = abs(val)
+                if mag <= thr:
+                    return 0.0, self.GIMBAL_MAX_COOLDOWN_MS
+                # Normalize magnitude from threshold..1.0 to 0..1
+                norm = (mag - thr) / max(1e-6, (1.0 - thr))
+                # Degrees and cooldown scale with normalized magnitude
+                degrees = self.GIMBAL_MIN_DEGREES + norm * (self.GIMBAL_MAX_DEGREES - self.GIMBAL_MIN_DEGREES)
+                cooldown = int(self.GIMBAL_MAX_COOLDOWN_MS - norm * (self.GIMBAL_MAX_COOLDOWN_MS - self.GIMBAL_MIN_COOLDOWN_MS))
+                return degrees, cooldown
+
+            # Horizontal: right/left
+            deg_x, cd_x = calc_params(right_x)
+            if deg_x > 0.0:
+                if right_x > 0:
+                    self._send_gimbal_action_with_throttle("x", "x_right", degrees=deg_x, cooldown_ms=cd_x)
+                else:
+                    self._send_gimbal_action_with_throttle("x", "x_left", degrees=deg_x, cooldown_ms=cd_x)
+
+            # Vertical: up/down (negative is up on most controllers)
+            deg_y, cd_y = calc_params(right_y)
+            if deg_y > 0.0:
+                if right_y < 0:
+                    self._send_gimbal_action_with_throttle("y", "y_up", degrees=deg_y, cooldown_ms=cd_y)
+                else:
+                    self._send_gimbal_action_with_throttle("y", "y_down", degrees=deg_y, cooldown_ms=cd_y)
+        except Exception:
+            # Never let controller issues crash the loop
+            pass
 
     # ============================================================================
     # MAIN LOOP METHODS
@@ -571,6 +689,8 @@ class ExplorerGUI:
 
     def update(self) -> None:
         """Update game state (called once per frame)."""
+        # Always process gimbal from controller regardless of robot/sim mode
+        self._update_gimbal_from_controller()
         if self.is_robot:
             self._publish_robot_motion()
         else:

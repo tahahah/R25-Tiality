@@ -16,6 +16,10 @@ cleanup() {
         kill $VIDEO_PID
         echo "gRPC video server (PID: $VIDEO_PID) stopped."
     fi
+    if [ -n "$GIMBAL_PID" ]; then
+        kill $GIMBAL_PID
+        echo "Gimbal MQTT controller (PID: $GIMBAL_PID) stopped."
+    fi
     exit 0
 }
 
@@ -88,12 +92,23 @@ start_mqtt_pwm() {
     echo "MQTT->PWM controller started with PID $MQTT_PID."
 }
 
+# Function to start Gimbal MQTT controller
+start_gimbal_mqtt() {
+    echo "Starting Gimbal MQTT controller..."
+    cd "$SCRIPT_DIR/MotorMoving"
+    python3 gimbal_mqtt.py --broker "$BROKER" &
+    GIMBAL_PID=$!
+    cd "$SCRIPT_DIR"
+    echo "Gimbal MQTT controller started with PID $GIMBAL_PID."
+}
+
 # Start requested services initially
 if [ -n "$VIDEO_SERVER" ]; then
     start_video_manager
 fi
 if [ -n "$BROKER" ]; then
     start_mqtt_pwm
+    start_gimbal_mqtt
 fi
 
 # If neither service requested, print usage and exit
@@ -118,6 +133,14 @@ while true; do
         if ! kill -0 $MQTT_PID 2>/dev/null; then
             echo "MQTT->PWM controller (PID $MQTT_PID) not running. Restarting..."
             start_mqtt_pwm
+        fi
+    fi
+
+    # Check if Gimbal MQTT controller is running (only if started)
+    if [ -n "$GIMBAL_PID" ]; then
+        if ! kill -0 $GIMBAL_PID 2>/dev/null; then
+            echo "Gimbal MQTT controller (PID $GIMBAL_PID) not running. Restarting..."
+            start_gimbal_mqtt
         fi
     fi
 

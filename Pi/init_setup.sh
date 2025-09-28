@@ -28,7 +28,12 @@ python3 -m venv "$VENV_DIR" --system-site-packages
 echo "--- Installing Python packages into the venv ---"
 # Intentionally omit numpy/opencv to avoid conflicts; rely on system packages
 pip install --upgrade pip
-pip install paho-mqtt pyserial RPi.GPIO aiortc av grpcio grpcio-tools protobuf pillow pygame
+pip install paho-mqtt pyserial RPi.GPIO aiortc av grpcio grpcio-tools protobuf pillow pygame pigpio pynput
+
+echo "--- Starting pigpio daemon ---"
+sudo systemctl enable pigpiod
+sudo systemctl start pigpiod
+echo "pigpio daemon started and enabled for auto-start"
 
 echo "--- Verifying picamera2 availability ---"
 if python3 -c "from picamera2 import Picamera2" 2>/dev/null; then
