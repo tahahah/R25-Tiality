@@ -27,7 +27,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # --------------------------- Defaults ---------------------------
 DEFAULT_BROKER_CANDIDATES="localhost,10.1.1.110,10.1.1.253,10.1.1.78"
 DEFAULT_BROKER_PORTS="1883,2883"
-DEFAULT_PI_CANDIDATES="10.1.1.228,10.1.1.253,10.1.1.124"
+DEFAULT_PI_CANDIDATES="10.1.1.228,10.1.1.253,10.1.1.124,raspberrypi.local"
 DEFAULT_PI_USER="pi"
 DEFAULT_REMOTE_DIR="~/R25-Tiality-worktree"
 DEFAULT_VIDEO_PORT="50051"
@@ -102,26 +102,43 @@ fi
 ssh_run() {
     local host="$1"; shift
     local remote_cmd="$1"
+    local target="$PI_USER@$host"
 
+    echo "  -> Trying key-based SSH to $target" >&2
     # First try key-based (BatchMode) with relaxed host key checks
-    if ssh "${ssh_base_args[@]}" "${ssh_probe_args[@]}" "$PI_USER@$host" "$remote_cmd"; then
+    if ssh "${ssh_base_args[@]}" "${ssh_probe_args[@]}" "$target" "$remote_cmd"; then
         return 0
+    else
+        local rc=$?
+        echo "     Key-based SSH failed for $target (exit $rc)" >&2
     fi
 
     # If sshpass is available, try password-based auth
     if command -v sshpass >/dev/null 2>&1; then
         local pass_args=("-o" "PreferredAuthentications=password" "-o" "PubkeyAuthentication=no" "-o" "ConnectTimeout=4" "-o" "StrictHostKeyChecking=no" "-o" "UserKnownHostsFile=/dev/null")
-        sshpass -p "$SSH_PASSWORD" ssh "${pass_args[@]}" "$PI_USER@$host" "$remote_cmd"
-        if [[ $? -eq 0 ]]; then
+        echo "  -> Trying password SSH (sshpass) to $target" >&2
+        if sshpass -p "$SSH_PASSWORD" ssh "${pass_args[@]}" "$target" "$remote_cmd"; then
             return 0
+        else
+            local rc=$?
+            echo "     sshpass password auth failed for $target (exit $rc)" >&2
         fi
+    elif [[ -n "$SSH_PASSWORD" ]]; then
+        echo "     sshpass not installed; skipping password auth for $target" >&2
     fi
 
     # If password auth failed, try hardcoded fallback identity key
     if [[ -f "$FALLBACK_IDENTITY" ]]; then
         local fb_args=("-o" "BatchMode=yes" "-o" "ConnectTimeout=4" "-o" "StrictHostKeyChecking=no" "-o" "UserKnownHostsFile=/dev/null" "-i" "$FALLBACK_IDENTITY")
-        ssh "${fb_args[@]}" "$PI_USER@$host" "$remote_cmd"
-        return $?
+        echo "  -> Trying fallback key $FALLBACK_IDENTITY for $target" >&2
+        if ssh "${fb_args[@]}" "$target" "$remote_cmd"; then
+            return 0
+        else
+            local rc=$?
+            echo "     Fallback key auth failed for $target (exit $rc)" >&2
+        fi
+    else
+        echo "     Fallback key not found at $FALLBACK_IDENTITY" >&2
     fi
 
     return 1
@@ -214,6 +231,9 @@ discover_pi() {
             echo "Found Pi at $host" >&2
             echo "$host"
             return 0
+        else
+            local rc=$?
+            echo "Probe to $host failed (exit $rc)" >&2
         fi
     done
     return 1
