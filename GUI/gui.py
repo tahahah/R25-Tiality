@@ -14,6 +14,7 @@ sys.path.append(parent_dir)
 
 # Now you can import modules from the parent directory
 from tiality_server import TialityServerManager
+from model.detector import Detector
 
 # Configure logging
 logging.basicConfig(
@@ -212,6 +213,55 @@ class ExplorerGUI:
         # Hardware states
         self.arm_state = ArmState.RETRACTED
         self.connection_status = ConnectionStatus.DISCONNECTED
+        
+        # Model inference states
+        self.inference_enabled = False
+        self.detector = None
+        self._init_detector()
+
+    def _init_detector(self) -> None:
+        """Initialize the YOLO detector for model inference."""
+        try:
+            # Get model path relative to the GUI directory
+            model_path = os.path.join(parent_dir, 'model', 'Teds_Model.pt')
+            
+            if os.path.exists(model_path):
+                self.detector = Detector(model_path)
+                logger.info(f"Detector initialized successfully with model: {model_path}")
+            else:
+                logger.warning(f"Model file not found at {model_path}. Inference will be disabled.")
+                self.detector = None
+        except Exception as e:
+            logger.error(f"Failed to initialize detector: {e}")
+            self.detector = None
+
+    def _pygame_surface_to_opencv(self, surface: pygame.Surface) -> Optional[np.ndarray]:
+        """Convert a pygame surface to OpenCV format for model inference."""
+        try:
+            # Get the RGB array from the pygame surface
+            rgb_array = pygame.surfarray.array3d(surface)
+            # Swap axes to get (height, width, channels) format
+            rgb_array = rgb_array.swapaxes(0, 1)
+            # Convert RGB to BGR for OpenCV
+            bgr_array = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
+            return bgr_array
+        except Exception as e:
+            logger.error(f"Error converting pygame surface to OpenCV: {e}")
+            return None
+
+    def _opencv_to_pygame_surface(self, opencv_img: np.ndarray) -> Optional[pygame.Surface]:
+        """Convert an OpenCV image to a pygame surface for display."""
+        try:
+            # Convert BGR to RGB
+            rgb_img = cv2.cvtColor(opencv_img, cv2.COLOR_BGR2RGB)
+            # Swap axes to get (width, height, channels) format for pygame
+            rgb_img = rgb_img.swapaxes(0, 1)
+            # Create pygame surface from the RGB array
+            surface = pygame.surfarray.make_surface(rgb_img)
+            return surface
+        except Exception as e:
+            logger.error(f"Error converting OpenCV image to pygame surface: {e}")
+            return None
 
     # ============================================================================
     # COMMAND AND STATUS METHODS
@@ -292,11 +342,36 @@ class ExplorerGUI:
     # ============================================================================
     def _collect_recent_frame(self):
         """
-        Collect frames from server manager to display, currently only works for first display
+        Collect frames from server manager to display, currently only works for first display.
+        Optionally processes frames through model inference if enabled.
         """
         #TODO: Add multiple camera functionality
-        self.camera_surfaces[0] = self.server_manager.get_video_frame()
-        # print(type(self.server_manager.get_video_frame()))
+        raw_frame = self.server_manager.get_video_frame()
+        
+        if raw_frame is None:
+            self.camera_surfaces[0] = None
+            return
+            
+        # Process frame through detector if inference is enabled
+        if self.inference_enabled and self.detector is not None:
+            try:
+                # Convert pygame surface back to opencv format for inference
+                opencv_frame = self._pygame_surface_to_opencv(raw_frame)
+                if opencv_frame is not None:
+                    # Run inference and get frame with bounding boxes
+                    bboxes, processed_frame = self.detector.detect_single_image(opencv_frame)
+                    # Convert back to pygame surface for display
+                    self.camera_surfaces[0] = self._opencv_to_pygame_surface(processed_frame)
+                else:
+                    # Fallback to raw frame if conversion fails
+                    self.camera_surfaces[0] = raw_frame
+            except Exception as e:
+                logger.error(f"Error during model inference: {e}")
+                # Fallback to raw frame on error
+                self.camera_surfaces[0] = raw_frame
+        else:
+            # Use raw frame when inference is disabled
+            self.camera_surfaces[0] = raw_frame
 
     def _draw_cameras(self) -> None:
         """Draw camera feeds and their status indicators."""
@@ -344,11 +419,12 @@ class ExplorerGUI:
         self.screen.blit(text_surface, text_rect)
 
     def _draw_status_info(self) -> None:
-        """Draw connection and arm status information."""
+        """Draw connection, arm, and inference status information."""
         status_y_position = self.config.SCREEN_HEIGHT - 50
         
         self._draw_connection_status(status_y_position)
         self._draw_arm_status(status_y_position - 25)
+        self._draw_inference_status(status_y_position - 50)
 
     def _draw_connection_status(self, y_position: int) -> None:
         is_connected = (self.connection_status == ConnectionStatus.CONNECTED)
@@ -367,6 +443,22 @@ class ExplorerGUI:
         arm_surface = self.fonts['medium'].render(arm_text, True, arm_colour)
         
         self.screen.blit(arm_surface, (30, y_position))
+
+    def _draw_inference_status(self, y_position: int) -> None:
+        """Draw model inference status indicator."""
+        # Determine status color and text
+        if self.detector is None:
+            inference_colour = self.colours.RED
+            inference_text = "Inference: NOT AVAILABLE"
+        elif self.inference_enabled:
+            inference_colour = self.colours.GREEN
+            inference_text = "Inference: ON"
+        else:
+            inference_colour = self.colours.YELLOW
+            inference_text = "Inference: OFF"
+        
+        inference_surface = self.fonts['medium'].render(inference_text, True, inference_colour)
+        self.screen.blit(inference_surface, (30, y_position))
 
     def draw_overlays(self) -> None:
         """Draw all interactive overlays on top of the background image."""
@@ -404,12 +496,17 @@ class ExplorerGUI:
             "  Arrow Keys - Control gimbal X/Y axes",
             "  X/C - Control crane servo up/down",
             "  Space - Emergency stop",
+            "  P - Toggle model inference ON/OFF",
             "  TODO: 1, 2 - Toggle cameras",
             "  H - Show/hide this help",
             "  ESC - Exit",
             "",
             "GIMBAL SETTINGS:",
             "  Direct Control: Each key press = 10° movement",
+            "",
+            "MODEL INFERENCE:",
+            "  Press P to toggle wildlife detection",
+            "  Green status = ON, Yellow = OFF, Red = Not Available",
             "",
             "Press any key to close help"
         ]
@@ -574,6 +671,8 @@ class ExplorerGUI:
             self.running = False
         elif key == pygame.K_h:
             self.show_help()
+        elif key == pygame.K_p:
+            self._toggle_model_inference()
         elif key in (pygame.K_1, pygame.K_2):
             self._handle_camera_toggle(key)
         elif key in (pygame.K_x, pygame.K_c):
@@ -610,6 +709,17 @@ class ExplorerGUI:
     def _handle_gimbal_key_release(self, event: pygame.event.Event) -> None:
         """Handle gimbal key releases (currently no action needed)"""
         pass
+
+    def _toggle_model_inference(self) -> None:
+        """Toggle model inference on/off when 'p' key is pressed."""
+        if self.detector is None:
+            logger.warning("Cannot toggle inference: detector not initialized")
+            return
+            
+        self.inference_enabled = not self.inference_enabled
+        status = "ENABLED" if self.inference_enabled else "DISABLED"
+        logger.info(f"Model inference {status}")
+        print(f"Model inference {status}")  # Also print to console for immediate feedback
 
     def handle_events(self) -> None:
         """Handle all pygame events."""
