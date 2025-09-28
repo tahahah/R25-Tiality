@@ -1,8 +1,8 @@
 import socket
 import threading
 import queue
-from .video_streaming import server as video_server
-from .video_streaming import decoder_worker
+from .grpc_video_streaming import server as video_server
+from .grpc_video_streaming import decoder_worker
 from .command_streaming import publisher as command_publisher
 
 def _connection_manager_worker(grpc_port, incoming_video_queue, decoded_video_queue, mqtt_broker_host_ip, mqtt_port, vehicle_tx_topic, gimbal_tx_topic, rx_topic, command_queue, connection_established_event, shutdown_event, decode_video_func, num_decode_video_workers):
