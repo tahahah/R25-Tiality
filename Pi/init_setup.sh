@@ -17,23 +17,42 @@ echo "--- Installing system packages (requires sudo) ---"
 sudo apt update
 sudo apt install -y python3-picamera2 python3-opencv python3-numpy --no-install-recommends
 
-echo "--- Creating virtual environment with system site packages ---"
-if [ -d "$VENV_DIR" ]; then
-    echo "Removing existing virtual environment at $VENV_DIR..."
-    rm -rf "$VENV_DIR"
+echo "--- Ensuring uv is available (optional) ---"
+if ! command -v uv >/dev/null 2>&1; then
+    echo "uv not found; attempting install to \$HOME/.local/bin ..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh || echo "uv install failed; continuing without uv"
+    export PATH="$HOME/.local/bin:$PATH"
 fi
-python3 -m venv "$VENV_DIR" --system-site-packages
+if command -v uv >/dev/null 2>&1; then
+    echo "uv available: $(uv --version 2>/dev/null || echo present)"
+    USE_UV=1
+else
+    USE_UV=0
+fi
+
+echo "--- Creating virtual environment ---"
+if [ "$USE_UV" -eq 1 ]; then
+    echo "--- Creating virtual environment with uv ---"
+    if uv venv --system-site-packages "$VENV_DIR"; then
+        :
+    else
+        echo "uv venv failed; falling back to python venv"
+        python3 -m venv "$VENV_DIR" --system-site-packages
+    fi
+else
+    echo "--- Creating virtual environment with python venv ---"
+    python3 -m venv "$VENV_DIR" --system-site-packages
+fi
 . "$VENV_DIR/bin/activate"
 
 echo "--- Installing Python packages into the venv ---"
 # Intentionally omit numpy/opencv to avoid conflicts; rely on system packages
-pip install --upgrade pip
-pip install paho-mqtt pyserial RPi.GPIO aiortc av grpcio grpcio-tools protobuf pillow pygame pigpio pynput
-
-echo "--- Starting pigpio daemon ---"
-sudo systemctl enable pigpiod
-sudo systemctl start pigpiod
-echo "pigpio daemon started and enabled for auto-start"
+if [ "$USE_UV" -eq 1 ]; then
+    uv pip install paho-mqtt pyserial RPi.GPIO aiortc av grpcio grpcio-tools protobuf pillow pygame
+else
+    pip install --upgrade pip
+    pip install paho-mqtt pyserial RPi.GPIO aiortc av grpcio grpcio-tools protobuf pillow pygame
+fi
 
 echo "--- Verifying picamera2 availability ---"
 if python3 -c "from picamera2 import Picamera2" 2>/dev/null; then

@@ -36,3 +36,31 @@ To run the tiality pi operating script, here is an example script:
 ./Pi/run_tiality.sh --broker 10.1.1.78 --broker_port 2883 --video_server 10.1.1.78:50051
 ```
 
+### One-command local orchestration
+Use the helper to auto-discover the MQTT broker and the Pi, then run the Pi setup and start services remotely (tmux if available):
+```
+scripts/setup_robot.sh \
+  --broker-candidates "192.168.0.115,10.1.1.78" \
+  --broker-ports "1883,2883" \
+  --pi-candidates "192.168.0.114,raspberrypi.local" \
+  --pi-user pi \
+  --remote-dir "~/R25-Tiality-worktree" \
+  --video-port 50051
+```
+
+Flags:
+- `--no-video`: start only MQTT->PWM on the Pi
+- `--identity PATH`: SSH key to use
+- `--broker-host-for-pi HOST`: override broker host passed to Pi (useful if local broker is `localhost`)
+- `--dry-run`: print actions without executing
+
+After it runs, you can attach on the Pi with:
+```
+ssh pi@<pi_ip> "tmux ls; tmux attach -t tiality"
+```
+
+Run the local pygame client (optional):
+```
+python3 pygame_video_mqtt_client.py --pi_ip <pi_ip> --grpc_port 50051 --broker <broker_host>
+```
+
