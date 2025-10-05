@@ -28,7 +28,7 @@ def main():
     # Start audio thread
     audio_thread = threading.Thread(
         target=pi_audio_manager_worker,
-        args=(args.audio_server, packet_generator_alsa, {"card": 1, "device": 0}),
+        args=(args.audio_server, packet_generator_alsa, {"card": 3, "device": 0}),
         daemon=True
     )
     audio_thread.start()
