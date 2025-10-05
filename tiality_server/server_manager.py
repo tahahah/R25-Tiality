@@ -5,7 +5,7 @@ from typing import Callable
 from .server_utils import _connection_manager_worker
 
 class TialityServerManager:
-    def __init__(self, grpc_port: int, mqtt_port: int, mqtt_broker_host_ip: str, decode_video_func, num_decode_video_workers: int):
+    def __init__(self, grpc_port: int, grpc_audio_port: int, mqtt_port: int, mqtt_broker_host_ip: str, decode_video_func, num_decode_video_workers: int):
         """
         Tiality Robot Server Manager
 
@@ -27,11 +27,14 @@ class TialityServerManager:
         self.incoming_video_queue = queue.Queue(maxsize=1)
         self.decoded_video_queue = queue.Queue(maxsize=1)
         self.command_queue = queue.Queue(maxsize=5)  # Increased queue size to prevent dropping
+        self.incoming_audio_queue = queue.Queue(maxsize=1)
+        self.decoded_audio_queue = queue.Queue(maxsize=1)
 
         # Change to your Raspberry Pi's IP
         self.grpc_port = grpc_port
         self.mqtt_port = mqtt_port
         self.mqtt_broker_host_ip = mqtt_broker_host_ip  # Change to your laptop/host running Mosquitto
+        self.grpc_audio_port = grpc_audio_port
         # Vehicle movement topics
         self.vehicle_tx_topic = "robot/tx"
         self.vehicle_rx_topic = "robot/rx"
@@ -52,6 +55,15 @@ class TialityServerManager:
             try:
                 new_frame = self.decoded_video_queue.get_nowait()
                 return new_frame
+            except queue.Empty:
+                return None
+        return None
+
+    def get_audio_packet(self):
+        """Get latest decoded audio packet"""
+        if self.servers_active:
+            try:
+                return self.decoded_audio_queue.get_nowait()
             except queue.Empty:
                 return None
         return None

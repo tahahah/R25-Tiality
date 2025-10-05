@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import os
 import json
+import sounddevice as sd
 from typing import Callable, Optional, Mapping
 from gui_config import ConnectionStatus, ArmState, Colour, GuiConfig
 
@@ -793,6 +794,20 @@ class ExplorerGUI:
             # Never let controller issues crash the loop
             pass
 
+    def _play_audio_packet(self) -> None:
+        """Get and play audio packets from the server."""
+        try:
+            audio_packet = self.server_manager.get_audio_packet()
+            if audio_packet:
+                # Play the decoded audio
+                audio_bytes = audio_packet['audio_data']
+                audio_array = np.frombuffer(audio_bytes, dtype=np.int16).reshape(-1, 2)
+                sd.play(audio_array, samplerate=48000, blocking=False)
+        except Exception as e:
+            # Don't log every error to avoid spam, only critical ones
+            if "audio_data" not in str(e).lower():
+                logger.debug(f"Audio playback error: {e}")
+
     # ============================================================================
     # MAIN LOOP METHODS
     # ============================================================================
@@ -805,6 +820,9 @@ class ExplorerGUI:
             self._publish_robot_motion()
         else:
             self.handle_movement()
+        
+        # Handle audio playback
+        self._play_audio_packet()
 
     def render(self) -> None:
         """Render the current frame."""
