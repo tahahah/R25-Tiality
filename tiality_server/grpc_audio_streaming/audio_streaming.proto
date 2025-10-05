@@ -1,0 +1,37 @@
+// Specifies that we are using proto3 syntax.
+syntax = "proto3";
+
+// Defines a package name to prevent naming conflicts.
+package audio;
+
+// The service definition for our audio streaming application.
+// This service will run on your GUI (the server).
+service AudioStreaming {
+  // Defines a client-streaming RPC method.
+  // The client (Raspberry Pi) will send a stream of AudioPacket messages.
+  // The server (GUI) will process them and send back a single StreamResponse
+  // once the client has finished sending packets.
+  rpc StreamAudio (stream AudioPacket) returns (StreamResponse) {}
+}
+
+// The message format for a single audio packet.
+message AudioPacket {
+  // The encoded audio data (Opus format), sent as bytes.
+  bytes packet_data = 1;
+  
+  // Timestamp in milliseconds (epoch time)
+  int64 timestamp = 2;
+  
+  // Sequence number for packet ordering
+  int32 sequence_number = 3;
+  
+  // Algorithm delay in samples (for Opus decoder)
+  int32 algorithm_delay = 4;
+}
+
+// The response message sent from the server to the client
+// after the audio stream has been processed.
+message StreamResponse {
+  // A simple status message to confirm receipt.
+  string status_message = 1;
+}
