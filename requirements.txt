@@ -22,3 +22,8 @@ PyOpenGL-accelerate==3.1.9
 
 # Misc utilities used outside Pi code
 pyserial==3.5
+
+# RFDETR
+rfdetr
+supervision
+roboflow

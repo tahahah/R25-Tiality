@@ -14,7 +14,7 @@ sys.path.append(parent_dir)
 
 # Now you can import modules from the parent directory
 from tiality_server import TialityServerManager
-from model.detector import Detector
+from model.rf_detr_inf import RFDETRDetector
 
 # Configure logging
 logging.basicConfig(
@@ -23,46 +23,41 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def _decode_video_frame_opencv(frame_bytes: bytes) -> pygame.Surface:
+def _decode_video_frame_opencv(frame_bytes: bytes) -> tuple:
     """
-    Decodes a byte array (JPEG) into a Pygame surface using the highly
-    optimized OpenCV library. This is the recommended, high-performance method.
+    Decodes a byte array (JPEG) into both Pygame surface and OpenCV format.
+    Returns both to avoid wasteful conversions during inference.
 
     Args:
         frame_bytes: The raw byte string of a single JPEG image.
 
     Returns:
-        A Pygame.Surface object, or None if decoding fails.
+        Tuple of (pygame.Surface, opencv_bgr_array) or (None, None) if decoding fails.
     """
     try:
         # 1. Convert the raw byte string to a 1D NumPy array.
-        #    This is a very fast, low-level operation.
         np_array = np.frombuffer(frame_bytes, np.uint8)
         
-        # 2. Decode the NumPy array into an OpenCV image.
-        #    This is the core, high-speed decoding step. The result is in BGR format.
+        # 2. Decode the NumPy array into an OpenCV image (BGR format).
         img_bgr = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
         
-        img_bgr = cv2.resize(img_bgr, (510, 230), interpolation=cv2.INTER_AREA)
+        img_bgr_resized = cv2.resize(img_bgr, (510, 230), interpolation=cv2.INTER_AREA)
 
-        # 3. Convert the color format from BGR (OpenCV's default) to RGB (Pygame's default).
-        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        # 3. Convert BGR to RGB for Pygame
+        img_rgb = cv2.cvtColor(img_bgr_resized, cv2.COLOR_BGR2RGB)
         
-        # 4. Correct the orientation. OpenCV arrays are (height, width), but
-        #    pygame.surfarray.make_surface expects (width, height). We swap the axes.
+        # 4. Swap axes for Pygame (width, height) format
         img_rgb = img_rgb.swapaxes(0, 1)
 
-        # 5. Create a Pygame surface directly from the NumPy array.
-        #    This is another very fast, low-level operation.
+        # 5. Create Pygame surface
         frame_surface = pygame.surfarray.make_surface(img_rgb)
         
-        return frame_surface
+        # Return BOTH formats - surface for display, BGR for inference
+        return frame_surface, img_bgr
         
     except Exception as e:
-        # If any part of the decoding fails (e.g., due to a corrupted frame),
-        # print an error and return None so the GUI doesn't crash.
         print(f"Error decoding frame with OpenCV: {e}")
-        return None
+        return None, None
 
 
 
@@ -217,22 +212,31 @@ class ExplorerGUI:
         # Model inference states
         self.inference_enabled = False
         self.detector = None
+        self.last_inference_frame = None  # Store last annotated frame for camera 2
+        self.raw_opencv_frame = None  # Cache raw OpenCV frame for fast inference
         self._init_detector()
 
     def _init_detector(self) -> None:
-        """Initialize the YOLO detector for model inference."""
+        """Initialize the RF-DETR detector for model inference."""
         try:
             # Get model path relative to the GUI directory
-            model_path = os.path.join(parent_dir, 'model', 'Teds_Model.pt')
+            model_path = os.path.join(parent_dir, 'model', 'rfdetr_4191_checkpoint_best_total_1.pth')
             
             if os.path.exists(model_path):
-                self.detector = Detector(model_path)
-                logger.info(f"Detector initialized successfully with model: {model_path}")
+                self.detector = RFDETRDetector(
+                    model_path=model_path,
+                    skip_frames=0,  # Not used for snapshot mode
+                    inference_size=(640, 640),  # Square size for optimal model performance
+                    conf_threshold=0.5
+                )
+                # Don't start async thread - we only use synchronous inference
+                logger.info(f"RF-DETR Detector initialized successfully with model: {model_path}")
+                logger.info("Press 'K' to run wildlife detection on current frame")
             else:
                 logger.warning(f"Model file not found at {model_path}. Inference will be disabled.")
                 self.detector = None
         except Exception as e:
-            logger.error(f"Failed to initialize detector: {e}")
+            logger.error(f"Failed to initialize RF-DETR detector: {e}")
             self.detector = None
 
     def _pygame_surface_to_opencv(self, surface: pygame.Surface) -> Optional[np.ndarray]:
@@ -342,36 +346,33 @@ class ExplorerGUI:
     # ============================================================================
     def _collect_recent_frame(self):
         """
-        Collect frames from server manager to display, currently only works for first display.
-        Optionally processes frames through model inference if enabled.
+        Collect frames from server manager to display.
+        Camera 1: Live feed
+        Camera 2: Last inference result (triggered by 'k' key)
         """
         #TODO: Add multiple camera functionality
-        raw_frame = self.server_manager.get_video_frame()
+        frame_data = self.server_manager.get_video_frame()
         
-        if raw_frame is None:
+        if frame_data is None:
             self.camera_surfaces[0] = None
+            self.raw_opencv_frame = None
             return
-            
-        # Process frame through detector if inference is enabled
-        if self.inference_enabled and self.detector is not None:
-            try:
-                # Convert pygame surface back to opencv format for inference
-                opencv_frame = self._pygame_surface_to_opencv(raw_frame)
-                if opencv_frame is not None:
-                    # Run asynchronous inference and get annotated frame
-                    _, processed_frame = self.detector.process_frame_async(opencv_frame)
-                    display_frame = self._opencv_to_pygame_surface(processed_frame)
-                    self.camera_surfaces[0] = display_frame if display_frame is not None else raw_frame
-                else:
-                    # Fallback to raw frame if conversion fails
-                    self.camera_surfaces[0] = raw_frame
-            except Exception as e:
-                logger.error(f"Error during model inference: {e}")
-                # Fallback to raw frame on error
-                self.camera_surfaces[0] = raw_frame
+        
+        # Handle both old (single value) and new (tuple) return formats
+        if isinstance(frame_data, tuple):
+            pygame_surface, opencv_frame = frame_data
+            self.raw_opencv_frame = opencv_frame  # Cache for fast inference!
         else:
-            # Use raw frame when inference is disabled
-            self.camera_surfaces[0] = raw_frame
+            # Fallback for old format
+            pygame_surface = frame_data
+            self.raw_opencv_frame = None
+        
+        # Camera 1: Always show live feed (no continuous inference)
+        self.camera_surfaces[0] = pygame_surface
+        
+        # Camera 2: Show last inference result if available
+        if self.last_inference_frame is not None:
+            self.camera_surfaces[1] = self.last_inference_frame
 
     def _draw_cameras(self) -> None:
         """Draw camera feeds and their status indicators."""
@@ -449,13 +450,10 @@ class ExplorerGUI:
         # Determine status color and text
         if self.detector is None:
             inference_colour = self.colours.RED
-            inference_text = "Inference: NOT AVAILABLE"
-        elif self.inference_enabled:
-            inference_colour = self.colours.GREEN
-            inference_text = "Inference: ON"
+            inference_text = "Detector: NOT AVAILABLE"
         else:
-            inference_colour = self.colours.YELLOW
-            inference_text = "Inference: OFF"
+            inference_colour = self.colours.GREEN
+            inference_text = "Detector: READY (Press K)"
         
         inference_surface = self.fonts['medium'].render(inference_text, True, inference_colour)
         self.screen.blit(inference_surface, (30, y_position))
@@ -496,7 +494,7 @@ class ExplorerGUI:
             "  Arrow Keys - Control gimbal X/Y axes",
             "  X/C - Control crane servo up/down",
             "  Space - Emergency stop",
-            "  P - Toggle model inference ON/OFF",
+            "  K - Run wildlife detection snapshot",
             "  TODO: 1, 2 - Toggle cameras",
             "  H - Show/hide this help",
             "  ESC - Exit",
@@ -505,8 +503,9 @@ class ExplorerGUI:
             "  Direct Control: Each key press = 10° movement",
             "",
             "MODEL INFERENCE:",
-            "  Press P to toggle wildlife detection",
-            "  Green status = ON, Yellow = OFF, Red = Not Available",
+            "  Press K to detect wildlife in current frame",
+            "  Result appears in Camera 2 (right panel)",
+            "  Inference takes ~1-2 seconds per snapshot",
             "",
             "Press any key to close help"
         ]
@@ -673,6 +672,8 @@ class ExplorerGUI:
             self.show_help()
         elif key == pygame.K_p:
             self._toggle_model_inference()
+        elif key == pygame.K_k:
+            self._run_inference_snapshot()
         elif key in (pygame.K_1, pygame.K_2):
             self._handle_camera_toggle(key)
         elif key in (pygame.K_x, pygame.K_c):
@@ -720,6 +721,58 @@ class ExplorerGUI:
         status = "ENABLED" if self.inference_enabled else "DISABLED"
         logger.info(f"Model inference {status}")
         print(f"Model inference {status}")  # Also print to console for immediate feedback
+
+    def _run_inference_snapshot(self) -> None:
+        """Run inference on current frame and display result in camera 2 when 'k' key is pressed."""
+        if self.detector is None:
+            logger.warning("Cannot run inference: detector not initialized")
+            print("Detector not initialized!")
+            return
+        
+        # Use cached raw OpenCV frame if available (MUCH faster!)
+        opencv_frame = self.raw_opencv_frame
+        
+        # Fallback: convert from pygame surface if raw frame not available
+        if opencv_frame is None:
+            current_frame = self.camera_surfaces[0]
+            if current_frame is None:
+                logger.warning("No frame available for inference")
+                print("No frame available!")
+                return
+            opencv_frame = self._pygame_surface_to_opencv(current_frame)
+            if opencv_frame is None:
+                logger.error("Failed to convert frame for inference")
+                return
+        
+        try:
+            import time
+            
+            print(f"🔍 Running inference on frame: {opencv_frame.shape}")
+            start_time = time.time()
+            
+            # Run synchronous inference (using cached OpenCV frame - no conversion!)
+            detections, annotated_frame = self.detector.detect_single_image(opencv_frame)
+            inference_time = time.time() - start_time
+            
+            # Convert back to pygame surface
+            result_surface = self._opencv_to_pygame_surface(annotated_frame)
+            if result_surface is not None:
+                self.last_inference_frame = result_surface
+                
+                # Count detections by class
+                if hasattr(detections, 'class_id') and len(detections.class_id) > 0:
+                    detection_summary = f"Found {len(detections.class_id)} animal(s)"
+                else:
+                    detection_summary = "No animals detected"
+                
+                logger.info(f"Inference complete in {inference_time:.2f}s - {detection_summary}")
+                print(f"✓ Done in {inference_time:.2f}s - {detection_summary}")
+            else:
+                logger.error("Failed to convert annotated frame back to pygame surface")
+                
+        except Exception as e:
+            logger.error(f"Error during inference snapshot: {e}")
+            print(f"❌ Error running inference: {e}")
 
     def handle_events(self) -> None:
         """Handle all pygame events."""
@@ -835,8 +888,7 @@ class ExplorerGUI:
     def cleanup(self) -> None:
         """Clean up resources before exit."""
         logger.info("Cleaning up resources...")
-        if self.detector is not None:
-            self.detector.stop()
+        # Detector cleanup not needed for snapshot mode (no async threads)
         self.server_manager.close_servers()
         pygame.quit()
         sys.exit()
