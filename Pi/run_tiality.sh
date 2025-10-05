@@ -1,32 +1,27 @@
 #!/bin/bash
-#
-# This script sets up the environment and starts both the video and MQTT services.
-# The Pi will run the MQTT broker locally.
-# Example: ./setup.sh
+set -e
 
-set -e # Exit on any error
-
-# Resolve the directory of this script so paths work regardless of CWD
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Function to clean up background processes on exit
 cleanup() {
     echo "\nShutting down services..."
     if [ -n "$VIDEO_PID" ]; then
         kill $VIDEO_PID
-        echo "gRPC video server (PID: $VIDEO_PID) stopped."
+        echo "Tiality manager (PID: $VIDEO_PID) stopped."
     fi
     if [ -n "$GIMBAL_PID" ]; then
         kill $GIMBAL_PID
         echo "Gimbal MQTT controller (PID: $GIMBAL_PID) stopped."
     fi
+    if [ -n "$MQTT_PID" ]; then
+        kill $MQTT_PID
+        echo "MQTT->PWM controller (PID: $MQTT_PID) stopped."
+    fi
     exit 0
 }
 
-# Trap Ctrl+C and other exit signals to run the cleanup function
 trap cleanup SIGINT SIGTERM
 
-# --- Main Script ---
 echo "--- Pulling latest changes ---"
 git pull
 
@@ -40,21 +35,27 @@ source "$VENV_DIR/bin/activate"
 
 echo "--- Parsing arguments ---"
 VIDEO_SERVER=""
+AUDIO_SERVER=""
 BROKER=""
 BROKER_PORT="1883"
+ENABLE_AUDIO=""
 
 usage() {
-    echo "Usage: $0 [--video_server HOST:PORT] [--broker HOST] [--broker_port PORT]"
+    echo "Usage: $0 [--video_server HOST:PORT] [--audio_server HOST:PORT] [--broker HOST] [--broker_port PORT] [--enable_audio]"
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --video_server)
             VIDEO_SERVER="$2"; shift 2;;
+        --audio_server)
+            AUDIO_SERVER="$2"; shift 2;;
         --broker)
             BROKER="$2"; shift 2;;
         --broker_port)
             BROKER_PORT="$2"; shift 2;;
+        --enable_audio)
+            ENABLE_AUDIO="--enable_audio"; shift;;
         -h|--help)
             usage; exit 0;;
         *)
@@ -62,37 +63,35 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [ -n "$VIDEO_SERVER" ]; then
-    echo "Using video_server: $VIDEO_SERVER"
-else
-    echo "video_server not supplied; video manager will not start"
-fi
-if [ -n "$BROKER" ]; then
-    echo "Using broker: $BROKER:$BROKER_PORT"
-else
-    echo "broker not supplied; MQTT->PWM controller will not start"
-fi
-
-echo "--- Starting services ---"
-
-
-# Function to start Pi Video Manager
-start_video_manager() {
-    echo "Starting Pi Video Manager..."
-    python3 "$SCRIPT_DIR/tiality_manager.py" --video_server "$VIDEO_SERVER" &
+# Start Pi Tiality Manager (video + audio)
+start_tiality_manager() {
+    echo "Starting Pi Tiality Manager (Video + Audio)..."
+    CMD="python3 $SCRIPT_DIR/tiality_manager.py --video_server $VIDEO_SERVER"
+    
+    # Add audio_server if provided
+    if [ -n "$AUDIO_SERVER" ]; then
+        CMD="$CMD --audio_server $AUDIO_SERVER"
+    fi
+    
+    # Add enable_audio flag if set
+    if [ -n "$ENABLE_AUDIO" ]; then
+        CMD="$CMD $ENABLE_AUDIO"
+    fi
+    
+    $CMD &
     VIDEO_PID=$!
-    echo "Pi Video Manager started with PID $VIDEO_PID."
+    echo "Tiality Manager started with PID $VIDEO_PID."
 }
 
-# Function to start MQTT->PWM controller
+# Start MQTT->PWM controller
 start_mqtt_pwm() {
-    echo "Starting MQTT->PWM controller... (Press Ctrl+C to stop all)"
+    echo "Starting MQTT->PWM controller..."
     python3 "$SCRIPT_DIR/mqtt_to_pwm.py" --broker "$BROKER" --broker_port "$BROKER_PORT" &
     MQTT_PID=$!
     echo "MQTT->PWM controller started with PID $MQTT_PID."
 }
 
-# Function to start Gimbal MQTT controller
+# Start Gimbal MQTT controller
 start_gimbal_mqtt() {
     echo "Starting Gimbal MQTT controller..."
     cd "$SCRIPT_DIR/MotorMoving"
@@ -102,59 +101,43 @@ start_gimbal_mqtt() {
     echo "Gimbal MQTT controller started with PID $GIMBAL_PID."
 }
 
-# Start requested services initially
+# Start services
 if [ -n "$VIDEO_SERVER" ]; then
-    start_video_manager
+    start_tiality_manager
 fi
 if [ -n "$BROKER" ]; then
     start_mqtt_pwm
     start_gimbal_mqtt
 fi
 
-# If neither service requested, print usage and exit
 if [ -z "$VIDEO_SERVER" ] && [ -z "$BROKER" ]; then
-    echo "No services requested. Provide --video_server and/or --broker."
+    echo "No services requested."
     usage
     exit 1
 fi
 
-# Loop to monitor and restart if needed
+# Monitor and restart loop
 while true; do
-    # Check if Pi Video Manager is running (only if started)
     if [ -n "$VIDEO_PID" ]; then
         if ! kill -0 $VIDEO_PID 2>/dev/null; then
-            echo "Pi Video Manager (PID $VIDEO_PID) not running. Restarting..."
-            start_video_manager
+            echo "Tiality Manager not running. Restarting..."
+            start_tiality_manager
         fi
     fi
 
-    # Check if MQTT->PWM controller is running (only if started)
     if [ -n "$MQTT_PID" ]; then
         if ! kill -0 $MQTT_PID 2>/dev/null; then
-            echo "MQTT->PWM controller (PID $MQTT_PID) not running. Restarting..."
+            echo "MQTT->PWM controller not running. Restarting..."
             start_mqtt_pwm
         fi
     fi
 
-    # Check if Gimbal MQTT controller is running (only if started)
     if [ -n "$GIMBAL_PID" ]; then
         if ! kill -0 $GIMBAL_PID 2>/dev/null; then
-            echo "Gimbal MQTT controller (PID $GIMBAL_PID) not running. Restarting..."
+            echo "Gimbal MQTT controller not running. Restarting..."
             start_gimbal_mqtt
         fi
     fi
 
     sleep 2
 done
-
-# Start Pi Video Viewer in the background
-
-# # Start WebRTC video server in the background
-# echo "Starting WebRTC video server..."
-# python3 "$SCRIPT_DIR/webrtc_server.py" &
-# VIDEO_PID=$!
-# echo "WebRTC video server started with PID $VIDEO_PID."
-
-
-# The script will only reach here if the mqtt bridge exits without Ctrl+C
-wait $VIDEO_PID

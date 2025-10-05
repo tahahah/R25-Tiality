@@ -3,6 +3,14 @@ pyserial
 RPi.GPIO
 aiortc
 av
+
+grpcio 
+grpcio-tools 
+protobuf 
+pillow 
+pygame 
+
 # Gimbal/servo control dependencies
 pigpio>=1.78
 pynput>=1.7.0
+

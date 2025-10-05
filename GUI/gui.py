@@ -120,12 +120,14 @@ class ExplorerGUI:
         
         # Setup Server and shared frame queue
         self.server_manager = TialityServerManager(
-            grpc_port = 50051, 
+            grpc_port = 50051,
             mqtt_port = mqtt_port, 
             mqtt_broker_host_ip = mqtt_broker_host_ip,
             decode_video_func = _decode_video_frame_opencv,
-            num_decode_video_workers = 1 # Don't change this for now
-            )
+            num_decode_video_workers = 1,
+            enable_audio = True, 
+            audio_grpc_port = 50052
+        )
         self.server_manager.start_servers()
 
         # Setup timing

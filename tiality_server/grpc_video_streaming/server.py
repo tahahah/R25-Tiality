@@ -57,7 +57,10 @@ class VideoStreamingServicer(video_streaming_pb2_grpc.VideoStreamingServicer):
         except grpc.RpcError as e:
             # This exception is commonly raised when the client disconnects abruptly.
             # We catch it to handle the dropout gracefully.
-            print(f"Client disconnected unexpectedly: {e.code()}")
+            try:
+                print(f"Client disconnected unexpectedly: {e.code()}")
+            except AttributeError:
+                print(f"Client disconnected unexpectedly: {type(e).__name__}")
 
         finally:
             # This block runs whether the stream finishes cleanly or the client disconnects.

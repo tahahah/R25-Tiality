@@ -20,5 +20,11 @@ pillow==11.3.0
 PyOpenGL==3.1.9
 PyOpenGL-accelerate==3.1.9
 
+# Audio (for decoding and playback on GUI)
+sounddevice==0.5.2
+cffi==2.0.0
+pycparser==2.23
+-e Pi/ALSA_Capture_Stream/PyOgg/
+
 # Misc utilities used outside Pi code
 pyserial==3.5

@@ -16,6 +16,7 @@ VENV_DIR="$SCRIPT_DIR/.venv_pi"
 echo "--- Installing system packages (requires sudo) ---"
 sudo apt update
 sudo apt install -y python3-picamera2 python3-opencv python3-numpy --no-install-recommends
+sudo apt install libasound2-dev libogg-dev libopus-dev libopusfile-dev libopusenc-dev libportaudio2
 
 echo "--- Creating virtual environment with system site packages ---"
 if [ -d "$VENV_DIR" ]; then
@@ -28,7 +29,11 @@ python3 -m venv "$VENV_DIR" --system-site-packages
 echo "--- Installing Python packages into the venv ---"
 # Intentionally omit numpy/opencv to avoid conflicts; rely on system packages
 pip install --upgrade pip
-pip install paho-mqtt pyserial RPi.GPIO aiortc av grpcio grpcio-tools protobuf pillow pygame pigpio pynput
+pip install -r "$SCRIPT_DIR/requirements.txt"
+
+cd "$SCRIPT_DIR/ALSA_Capture_Stream"
+pip install -r "requirements.txt"
+cd "$SCRIPT_DIR"
 
 echo "--- Starting pigpio daemon ---"
 sudo systemctl enable pigpiod

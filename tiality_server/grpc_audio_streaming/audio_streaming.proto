@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package audio;
+
+service AudioStreaming {
+  // Client-streaming RPC: Pi sends audio packets, GUI receives them
+  rpc StreamAudio (stream AudioPacket) returns (StreamResponse) {}
+}
+
+message AudioPacket {
+  // Opus-encoded audio data
+  bytes audio_data = 1;
+  
+  // Metadata from encoder
+  int64 timestamp = 2;
+  int32 sequence_number = 3;
+  int32 packet_length = 4;
+  int32 algorithm_delay = 5;
+}
+
+message StreamResponse {
+  string status_message = 1;
+}

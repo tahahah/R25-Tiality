@@ -25,6 +25,26 @@ The gui can be run after packages have been installed from requirements.txt. Ens
 python3 GUI/gui.py --robot --broker_port=<port_number>
 ```
 
+**For audio support on the GUI machine:**
+
+On **macOS**, first install native libraries:
+```bash
+brew install opus libogg opusfile
+```
+
+Then install Python packages:
+```bash
+pip install -r requirements.txt
+```
+
+On **Linux**:
+```bash
+sudo apt-get install libopus0 libogg0 libopusfile0
+pip install -r requirements.txt
+```
+
+This will install PyOgg and sounddevice required for audio decoding and playback.
+
 ### Pi
 The robot requires an initial setup of the virtual environment, ENSURE NO SUDO IS USED. All the following commands are operated from the R25-Tiality directory:
 ```
@@ -35,4 +55,17 @@ To run the tiality pi operating script, here is an example script:
 ```
 ./Pi/run_tiality.sh --broker 10.1.1.78 --broker_port 2883 --video_server 10.1.1.78:50051
 ```
+
+To enable audio streaming, add the `--enable_audio` flag and optionally specify the audio server:
+```
+./Pi/run_tiality.sh --broker 10.1.1.78 --broker_port 2883 --video_server 10.1.1.78:50051 --audio_server 10.1.1.78:50052 --enable_audio
+```
+
+If `--audio_server` is not specified, it defaults to `localhost:50052`.
+
+**Note:** Audio streaming requires:
+- ALSA audio device configured on the Pi (default: card 3, device 0)
+- PyOgg and Opus libraries installed on Pi (handled by init_setup.sh)
+- PyOgg installed on GUI machine (install via `pip install -r requirements.txt`)
+- Audio server running on the GUI (enabled by default on port 50052)
 
