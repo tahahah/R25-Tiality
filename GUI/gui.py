@@ -358,10 +358,10 @@ class ExplorerGUI:
                 # Convert pygame surface back to opencv format for inference
                 opencv_frame = self._pygame_surface_to_opencv(raw_frame)
                 if opencv_frame is not None:
-                    # Run inference and get frame with bounding boxes
-                    bboxes, processed_frame = self.detector.detect_single_image(opencv_frame)
-                    # Convert back to pygame surface for display
-                    self.camera_surfaces[0] = self._opencv_to_pygame_surface(processed_frame)
+                    # Run asynchronous inference and get annotated frame
+                    _, processed_frame = self.detector.process_frame_async(opencv_frame)
+                    display_frame = self._opencv_to_pygame_surface(processed_frame)
+                    self.camera_surfaces[0] = display_frame if display_frame is not None else raw_frame
                 else:
                     # Fallback to raw frame if conversion fails
                     self.camera_surfaces[0] = raw_frame
@@ -835,6 +835,8 @@ class ExplorerGUI:
     def cleanup(self) -> None:
         """Clean up resources before exit."""
         logger.info("Cleaning up resources...")
+        if self.detector is not None:
+            self.detector.stop()
         self.server_manager.close_servers()
         pygame.quit()
         sys.exit()

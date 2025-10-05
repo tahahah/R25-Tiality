@@ -1,8 +1,15 @@
 import cv2
 import os
-import numpy as np
+import queue
 import sys
-from copy import deepcopy
+import threading
+import time
+from collections import deque
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
+
+import numpy as np
+import torch
 from ultralytics import YOLO
 from ultralytics.utils import ops
 
@@ -11,9 +18,55 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
 from tiality_server import TialityServerManager
 
-class Detector:
-    def __init__(self, model_path):
+
+@dataclass
+class ProcessedFrame:
+    """Container for processed frame data."""
+
+    image: np.ndarray
+    bboxes: List
+    timestamp: float
+    frame_id: int
+
+
+class OptimizedDetector:
+    """Optimized YOLO detector supporting asynchronous inference."""
+
+    def __init__(
+        self,
+        model_path: str,
+        skip_frames: int = 2,
+        inference_size: Tuple[int, int] = (640, 360),
+        conf_threshold: float = 0.5,
+        use_half_precision: bool = False,
+    ) -> None:
         self.model = YOLO(model_path)
+
+        self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+        self.model.to(self.device)
+
+        if use_half_precision and self.device.startswith('cuda'):
+            try:
+                self.model.model.half()
+            except AttributeError:
+                pass
+
+        self.skip_frames = max(0, int(skip_frames))
+        self.inference_size = inference_size
+        self.conf_threshold = conf_threshold
+
+        self.inference_queue: queue.Queue[Optional[Tuple[np.ndarray, int]]] = queue.Queue(maxsize=2)
+        self.results_queue: queue.Queue[ProcessedFrame] = queue.Queue(maxsize=5)
+        self.latest_result: Optional[ProcessedFrame] = None
+        self.result_lock = threading.Lock()
+
+        self.frame_counter = 0
+        self.inference_thread: Optional[threading.Thread] = None
+        self.running = False
+
+        self.fps_tracker: deque[float] = deque(maxlen=30)
+        self.last_inference_time: float = 0.0
+
         self.class_colour = {
             'cockatoo': (0, 165, 255),
             'croc': (0, 255, 255),
@@ -22,80 +75,215 @@ class Detector:
             'koala': (255, 0, 0),
             'platty': (255, 255, 0),
             'tas': (255, 165, 0),
-            'wombat': (255, 0, 255)
+            'wombat': (255, 0, 255),
         }
 
-    def detect_single_image(self, img):
-        """
-        function:
-            detect target(s) in an image
-        input:
-            img: image, e.g., image read by the cv2.imread() function
-        output:
-            bboxes: list of lists, box info [label,[x,y,width,height]] for all detected targets in image
-            img_out: image with bounding boxes and class labels drawn on
-        """
-        bboxes = self._get_bounding_boxes(img)
+    def start(self) -> None:
+        if self.running:
+            return
+        self.running = True
+        self.inference_thread = threading.Thread(target=self._inference_worker, daemon=True)
+        self.inference_thread.start()
 
-        img_out = deepcopy(img)
+    def stop(self) -> None:
+        self.running = False
+        if self.inference_thread and self.inference_thread.is_alive():
+            try:
+                self.inference_queue.put_nowait(None)
+            except queue.Full:
+                pass
+            self.inference_thread.join(timeout=2.0)
 
-        # draw bounding boxes on the image
-        for bbox in bboxes:
-            label = bbox[0]
-            coords = bbox[1]
-            confidence = bbox[2] if len(bbox) > 2 else None
+    def _inference_worker(self) -> None:
+        while self.running:
+            try:
+                frame_data = self.inference_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
 
-            #  translate bounding box info back to the format of [x1,y1,x2,y2]
-            xyxy = ops.xywh2xyxy(coords)
-            x1 = int(xyxy[0])
-            y1 = int(xyxy[1])
-            x2 = int(xyxy[2])
-            y2 = int(xyxy[3])
+            try:
+                if frame_data is None:
+                    continue
 
-            # draw bounding box
-            color = self.class_colour.get(label, (255, 255, 255))
-            img_out = cv2.rectangle(img_out, (x1, y1), (x2, y2), color, thickness=2)
+                frame, frame_id = frame_data
+                start_time = time.time()
+                bboxes = self._get_bounding_boxes(frame)
+                inference_time = time.time() - start_time
 
-            # draw class label
-            label_text = label if confidence is None else f"{label}: {confidence:.2f}"
-            img_out = cv2.putText(img_out, label_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                                  color, 2)
+                result = ProcessedFrame(
+                    image=frame,
+                    bboxes=bboxes,
+                    timestamp=time.time(),
+                    frame_id=frame_id,
+                )
 
+                fps_value = 1.0 / inference_time if inference_time > 0 else 0.0
+
+                with self.result_lock:
+                    self.latest_result = result
+                    self.last_inference_time = inference_time
+                    if fps_value > 0:
+                        self.fps_tracker.append(fps_value)
+
+                try:
+                    self.results_queue.put_nowait(result)
+                except queue.Full:
+                    pass
+            except Exception as exc:
+                print(f"Inference worker error: {exc}")
+            finally:
+                self.inference_queue.task_done()
+
+    def process_frame_async(self, frame: np.ndarray) -> Tuple[Optional[List], np.ndarray]:
+        if not self.running:
+            self.start()
+
+        self.frame_counter += 1
+
+        should_process = self.skip_frames == 0 or self.frame_counter % (self.skip_frames + 1) == 0
+
+        if should_process:
+            inference_frame = cv2.resize(frame, self.inference_size, interpolation=cv2.INTER_LINEAR)
+            try:
+                self.inference_queue.put_nowait((inference_frame, self.frame_counter))
+            except queue.Full:
+                pass
+
+        with self.result_lock:
+            if self.latest_result:
+                annotated = self._draw_detections(frame, self.latest_result.bboxes, self.inference_size)
+                fps = self._current_fps()
+                if fps > 0:
+                    cv2.putText(
+                        annotated,
+                        f"Inference FPS: {fps:.1f}",
+                        (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 255, 0),
+                        2,
+                    )
+                return self.latest_result.bboxes, annotated
+
+        return None, frame
+
+    def detect_single_image(self, img: np.ndarray) -> Tuple[List, np.ndarray]:
+        inference_img = cv2.resize(img, self.inference_size, interpolation=cv2.INTER_LINEAR)
+        bboxes = self._get_bounding_boxes(inference_img)
+        img_out = self._draw_detections(img, bboxes, self.inference_size)
         return bboxes, img_out
 
-    def _get_bounding_boxes(self, cv_img):
-        """
-        function:
-            get bounding box and class label of target(s) in an image as detected by YOLOv8
-        input:
-            cv_img    : image, e.g., image read by the cv2.imread() function
-            model_path: str, e.g., 'yolov8n.pt', trained YOLOv8 model
-        output:
-            bounding_boxes: list of lists, box info [label,[x,y,width,height]] for all detected targets in image
-        """
+    def _get_bounding_boxes(self, cv_img: np.ndarray) -> List:
+        try:
+            predictions = self.model.predict(
+                cv_img,
+                imgsz=max(self.inference_size),
+                conf=self.conf_threshold,
+                verbose=False,
+                device=self.device,
+            )
+        except Exception as exc:
+            print(f"Error in detection: {exc}")
+            return []
 
-        # predict target type and bounding box with your trained YOLO
-
-        predictions = self.model.predict(cv_img, imgsz=320, verbose=False)
-
-        # get bounding box and class label for target(s) detected
-        bounding_boxes = []
+        bounding_boxes: List = []
         for prediction in predictions:
             boxes = prediction.boxes
+            if boxes is None:
+                continue
+
             for box in boxes:
-                if box.conf > 0.80:
-                    # bounding format in [x, y, width, height]
-                    box_cord = box.xywh[0]
+                conf = float(box.conf)
+                if conf < self.conf_threshold:
+                    continue
 
-                    box_label = box.cls  # class label of the box
+                coords = box.xywh[0].detach().cpu().numpy()
+                label_idx = int(box.cls)
+                label = prediction.names.get(label_idx, str(label_idx)) if isinstance(prediction.names, dict) else prediction.names[label_idx]
 
-                    bounding_boxes.append([
-                        prediction.names[int(box_label)],
-                        np.asarray(box_cord),
-                        float(box.conf)
-                    ])
+                bounding_boxes.append([
+                    label,
+                    coords,
+                    conf,
+                ])
 
         return bounding_boxes
+
+    def _draw_detections(
+        self,
+        img: np.ndarray,
+        bboxes: List,
+        inference_size: Tuple[int, int],
+    ) -> np.ndarray:
+        img_out = img.copy()
+
+        if not bboxes:
+            return img_out
+
+        scale_x = img.shape[1] / float(inference_size[0])
+        scale_y = img.shape[0] / float(inference_size[1])
+
+        for bbox in bboxes:
+            label, coords, confidence = bbox[0], bbox[1], bbox[2] if len(bbox) > 2 else None
+            scaled_coords = coords.copy()
+            scaled_coords[0] *= scale_x
+            scaled_coords[1] *= scale_y
+            scaled_coords[2] *= scale_x
+            scaled_coords[3] *= scale_y
+
+            xyxy = ops.xywh2xyxy(scaled_coords)
+            x1, y1, x2, y2 = map(int, xyxy)
+
+            color = self.class_colour.get(label, (255, 255, 255))
+            cv2.rectangle(img_out, (x1, y1), (x2, y2), color, thickness=2)
+
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.6
+            thickness = 2
+            label_text = f"{label}: {confidence:.2f}" if confidence is not None else label
+
+            (text_width, text_height), baseline = cv2.getTextSize(label_text, font, font_scale, thickness)
+
+            cv2.rectangle(
+                img_out,
+                (x1, y1 - text_height - 5),
+                (x1 + text_width, y1),
+                color,
+                -1,
+            )
+
+            cv2.putText(
+                img_out,
+                label_text,
+                (x1, y1 - 5),
+                font,
+                font_scale,
+                (255, 255, 255),
+                thickness,
+            )
+
+        return img_out
+
+    def _current_fps(self) -> float:
+        if not self.fps_tracker:
+            return 0.0
+        return sum(self.fps_tracker) / len(self.fps_tracker)
+
+    def __del__(self) -> None:
+        self.stop()
+
+
+class Detector(OptimizedDetector):
+    """Backward-compatible detector wrapper."""
+
+    def __init__(self, model_path: str) -> None:
+        super().__init__(
+            model_path=model_path,
+            skip_frames=2,
+            inference_size=(640, 360),
+            conf_threshold=0.5,
+        )
+        self.start()
 
 def _decode_video_frame_opencv(frame_bytes: bytes) -> np.ndarray:
     """
@@ -171,5 +359,6 @@ if __name__ == '__main__':
             if key in (27, ord('q')):
                 break
     finally:
+        detector.stop()
         server_manager.close_servers()
         cv2.destroyAllWindows()
