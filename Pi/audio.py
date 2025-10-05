@@ -39,7 +39,7 @@ def pi_audio_manager_worker(server_addr, packet_generator_func, device_config=No
     
     # Default device configuration for the 4-channel microphone
     if device_config is None:
-        device_config = {"card": 1, "device": 0}
+        device_config = {"card": 3, "device": 0}
     
     # Setup thread safe queues and start gRPC client
     audio_packet_queue = queue.Queue(maxsize=5)  # Buffer a few packets
@@ -56,8 +56,8 @@ def pi_audio_manager_worker(server_addr, packet_generator_func, device_config=No
         try:
             # Initialize settings
             settings.init()
-            settings.captured_channels = 4  # 4-channel microphone
-            settings.encoded_channels = 2   # Encode to stereo
+            settings.captured_channels = 1  # 4-channel microphone
+            settings.encoded_channels = 1   # Encode to stereo
             
             # Create buffers
             capture_buffer = bytearray(settings.frame_bytes * settings.captured_channels)
