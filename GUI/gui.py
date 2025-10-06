@@ -7,7 +7,6 @@ import os
 import json
 from typing import Callable, Optional, Mapping
 from gui_config import ConnectionStatus, ArmState, Colour, GuiConfig
-from audio_mqtt_subscriber import AudioMQTTSubscriber
 
 # Get the parent directory path
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -15,6 +14,14 @@ sys.path.append(parent_dir)
 
 # Now you can import modules from the parent directory
 from tiality_server import TialityServerManager
+
+# Import audio receiver
+try:
+    from GUI.udp_audio_receiver import UDPAudioReceiver
+    AUDIO_AVAILABLE = True
+except ImportError:
+    AUDIO_AVAILABLE = False
+    logging.warning("Audio receiver not available (missing dependencies)")
 
 # Configure logging
 logging.basicConfig(
@@ -82,20 +89,22 @@ class ExplorerGUI:
         is_robot: bool = True,
         mqtt_broker_host_ip: str = "localhost",
         mqtt_port: int = 1883,
-        enable_audio: bool = False,
+        audio_enabled: bool = True,
+        audio_port: int = 5005,
     ):
         """
         Args:
             background_image_path: Path to the background image file
             command_callback: Callback function for handling commands to PI
-            enable_audio: Enable MQTT audio streaming
+            audio_enabled: Whether to enable audio streaming reception
+            audio_port: UDP port to listen for audio streams
         """
         # Initialise core components
         pygame.init()
         self.config = GuiConfig()
         self.colours = Colour()
         self.is_robot = is_robot
-        self.enable_audio = enable_audio
+        self.audio_enabled = audio_enabled
         
         # Setup display and resources
         self._load_background(background_image_path)
@@ -131,23 +140,23 @@ class ExplorerGUI:
             )
         self.server_manager.start_servers()
         
-        # Setup MQTT audio subscriber if enabled
-        self.audio_subscriber = None
-        if self.enable_audio:
-            logger.info("Initializing MQTT audio streaming...")
-            self.audio_subscriber = AudioMQTTSubscriber(
-                broker_host=mqtt_broker_host_ip,
-                broker_port=mqtt_port,
-                audio_topic="robot/audio/tx",
-                sample_rate=48000,
-                channels=1,
-                buffer_size=10
-            )
-            if self.audio_subscriber.connect():
-                logger.info("MQTT audio streaming enabled")
-            else:
-                logger.warning("Failed to connect audio subscriber")
-                self.audio_subscriber = None
+        # Setup audio receiver if enabled
+        self.audio_receiver = None
+        if self.audio_enabled and AUDIO_AVAILABLE:
+            try:
+                self.audio_receiver = UDPAudioReceiver(
+                    listen_port=audio_port,
+                    sample_rate=48000,
+                    channels=1,
+                    playback_enabled=True
+                )
+                self.audio_receiver.start()
+                logger.info(f"Audio receiver started on port {audio_port}")
+            except Exception as e:
+                logger.error(f"Failed to start audio receiver: {e}")
+                self.audio_receiver = None
+        elif self.audio_enabled and not AUDIO_AVAILABLE:
+            logger.warning("Audio enabled but dependencies not available")
 
         # Setup timing
         self.clock = pygame.time.Clock()
@@ -748,14 +757,24 @@ class ExplorerGUI:
         """Clean up resources before exit."""
         logger.info("Cleaning up resources...")
         
-        # Cleanup audio subscriber
-        if self.audio_subscriber:
-            logger.info(f"Audio stats: {self.audio_subscriber.get_stats()}")
-            self.audio_subscriber.disconnect()
+        # Close audio receiver
+        if self.audio_receiver:
+            try:
+                self.audio_receiver.close()
+                logger.info("Audio receiver closed")
+            except Exception as e:
+                logger.error(f"Error closing audio receiver: {e}")
         
+        # Close server manager
         self.server_manager.close_servers()
         pygame.quit()
         sys.exit()
+    
+    def get_audio_stats(self) -> Optional[dict]:
+        """Get audio streaming statistics."""
+        if self.audio_receiver:
+            return self.audio_receiver.get_stats()
+        return None
 
 
 # ============================================================================
@@ -769,7 +788,9 @@ if __name__ == "__main__":
     parser.add_argument("--robot", action='store_true', help="Whether to run the robot or sim")
     parser.add_argument("--broker", default="localhost", help="MQTT broker host/IP for robot mode")
     parser.add_argument("--broker_port", type=int, default=1883, help="MQTT broker TCP port for robot mode")
-    parser.add_argument("--audio", action='store_true', help="Enable MQTT audio streaming")
+    parser.add_argument("--audio", action='store_true', default=True, help="Enable audio streaming (default: True)")
+    parser.add_argument("--no-audio", action='store_false', dest='audio', help="Disable audio streaming")
+    parser.add_argument("--audio_port", type=int, default=5005, help="UDP port for audio streaming (default: 5005)")
     args = parser.parse_args()
     gui_type = "Robot" if args.robot else "Sim"
     print(f"Wildlife Explorer for {gui_type}")
@@ -790,7 +811,15 @@ if __name__ == "__main__":
         logger.info(f"GUI Command: {command}")
     
     try:
-        gui = ExplorerGUI(image_path, command_callback, args.robot, mqtt_broker_host_ip=args.broker, mqtt_port=args.broker_port, enable_audio=args.audio)
+        gui = ExplorerGUI(
+            image_path, 
+            command_callback, 
+            args.robot, 
+            mqtt_broker_host_ip=args.broker, 
+            mqtt_port=args.broker_port,
+            audio_enabled=args.audio,
+            audio_port=args.audio_port
+        )
         gui.run()
     except KeyboardInterrupt:
         logger.info("Application interrupted by user")
