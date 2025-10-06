@@ -1,3 +1,22 @@
+"""
+UDP Audio Receiver for R25-Tiality GUI
+
+This module receives Opus-encoded audio packets via UDP and plays them in real-time.
+
+ARCHITECTURE NOTE - PyOgg vs System Libraries:
+---------------------------------------------
+This implementation uses SYSTEM Opus libraries (via ctypes) instead of PyOgg.
+
+Why?
+- Pi uses PyOgg with ARM-compiled libraries
+- Mac uses system libopus installed via Homebrew (ARM64/x86_64)
+- Cross-architecture compatibility without copying libraries
+- Simpler setup: just `brew install opus` on Mac
+
+The SimpleOpusDecoder class provides direct ctypes bindings to system libopus,
+avoiding PyOgg dependency and architecture conflicts on the GUI side.
+"""
+
 import socket
 import struct
 import logging
@@ -9,12 +28,102 @@ from typing import Optional
 import sys
 import os
 
-# Add parent directory to path to import decoder
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# Note: PyOgg directory check kept for backwards compatibility
+# but not required when using system Opus libraries
+gui_dir = os.path.dirname(os.path.abspath(__file__))
+pyogg_dir = os.path.join(gui_dir, 'PyOgg')
+if os.path.exists(pyogg_dir):
+    sys.path.insert(0, pyogg_dir)
+
+# Add parent directory to path
+parent_dir = os.path.abspath(os.path.join(gui_dir, '..'))
 sys.path.append(parent_dir)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+class SimpleOpusDecoder:
+    """Simple Opus decoder using system libopus."""
+    
+    def __init__(self, libopus, sample_rate: int, channels: int):
+        """Initialize Opus decoder with system library."""
+        import ctypes
+        
+        self.libopus = libopus
+        self.sample_rate = sample_rate
+        self.channels = channels
+        
+        # Opus constants
+        OPUS_OK = 0
+        
+        # Define C function signatures
+        self.libopus.opus_decoder_get_size.argtypes = [ctypes.c_int]
+        self.libopus.opus_decoder_get_size.restype = ctypes.c_int
+        
+        self.libopus.opus_decoder_create.argtypes = [
+            ctypes.c_int,  # sample_rate
+            ctypes.c_int,  # channels
+            ctypes.POINTER(ctypes.c_int)  # error
+        ]
+        self.libopus.opus_decoder_create.restype = ctypes.c_void_p
+        
+        self.libopus.opus_decode.argtypes = [
+            ctypes.c_void_p,  # decoder
+            ctypes.POINTER(ctypes.c_ubyte),  # data
+            ctypes.c_int,  # len
+            ctypes.POINTER(ctypes.c_int16),  # pcm
+            ctypes.c_int,  # frame_size
+            ctypes.c_int  # decode_fec
+        ]
+        self.libopus.opus_decode.restype = ctypes.c_int
+        
+        # Create decoder
+        error = ctypes.c_int()
+        self.decoder = self.libopus.opus_decoder_create(
+            sample_rate,
+            channels,
+            ctypes.byref(error)
+        )
+        
+        if error.value != OPUS_OK or not self.decoder:
+            raise RuntimeError(f"Failed to create Opus decoder: {error.value}")
+        
+        logger.info(f"Opus decoder created: {sample_rate}Hz, {channels} channel(s)")
+    
+    def decode(self, encoded_packet: bytearray) -> bytes:
+        """Decode an Opus packet to PCM audio."""
+        import ctypes
+        
+        # Maximum frame size for Opus (120ms at 48kHz)
+        max_frame_size = 5760
+        
+        # Create output buffer
+        pcm_buffer = (ctypes.c_int16 * (max_frame_size * self.channels))()
+        
+        # Convert input to ctypes
+        encoded_data = (ctypes.c_ubyte * len(encoded_packet)).from_buffer(encoded_packet)
+        
+        # Decode
+        num_samples = self.libopus.opus_decode(
+            self.decoder,
+            encoded_data,
+            len(encoded_packet),
+            pcm_buffer,
+            max_frame_size,
+            0  # decode_fec = 0
+        )
+        
+        if num_samples < 0:
+            raise RuntimeError(f"Opus decode error: {num_samples}")
+        
+        # Convert int16 array to bytes properly
+        # Calculate total bytes (2 bytes per int16 sample)
+        total_samples = num_samples * self.channels
+        total_bytes = total_samples * 2
+        
+        # Use ctypes.string_at to get raw bytes from the buffer
+        return ctypes.string_at(ctypes.addressof(pcm_buffer), total_bytes)
 
 
 class UDPAudioReceiver:
@@ -82,20 +191,41 @@ class UDPAudioReceiver:
         """Lazy initialize the Opus decoder."""
         if self.decoder is None:
             try:
-                # Import here to avoid issues if PyOgg not available on GUI machine
-                from ALSA_Capture_Stream.decoder_object import DecoderObject
-                import ALSA_Capture_Stream.settings as settings
+                # Use system Opus library directly (works on macOS with Homebrew)
+                import ctypes
+                import ctypes.util
                 
-                # Initialize settings
-                settings.init()
-                settings.sample_rate = self.sample_rate
-                settings.encoded_channels = self.channels
+                # Find system Opus library
+                opus_lib_path = ctypes.util.find_library('opus')
                 
-                self.decoder = DecoderObject()
+                # If not found, try common Homebrew paths on macOS
+                if not opus_lib_path:
+                    import platform
+                    if platform.system() == 'Darwin':
+                        homebrew_paths = [
+                            '/opt/homebrew/lib/libopus.dylib',  # Apple Silicon
+                            '/usr/local/lib/libopus.dylib',      # Intel Mac
+                            '/opt/homebrew/opt/opus/lib/libopus.dylib',  # Homebrew opt
+                            '/usr/local/opt/opus/lib/libopus.dylib'
+                        ]
+                        for path in homebrew_paths:
+                            if os.path.exists(path):
+                                opus_lib_path = path
+                                break
+                
+                if not opus_lib_path:
+                    raise ImportError("System Opus library not found. Install via: brew install opus")
+                
+                logger.info(f"Using system Opus library: {opus_lib_path}")
+                libopus = ctypes.CDLL(opus_lib_path)
+                
+                # Create a simple Opus decoder wrapper
+                self.decoder = SimpleOpusDecoder(libopus, self.sample_rate, self.channels)
+                
                 logger.info("Opus decoder initialized")
             except ImportError as e:
                 logger.error(f"Failed to import decoder: {e}")
-                logger.info("Install PyOgg and dependencies on GUI machine for decoding")
+                logger.info("Install Opus: brew install opus")
                 raise
     
     def start(self) -> None:
@@ -207,8 +337,9 @@ class UDPAudioReceiver:
                 # Get packet from queue
                 packet = self.packet_queue.get(timeout=0.1)
                 
-                # Decode audio
-                decoded_audio = self.decoder.decode(packet['data'])
+                # Decode audio (decoder expects mutable buffer)
+                mutable_buffer = bytearray(packet['data'])
+                decoded_audio = bytes(self.decoder.decode(mutable_buffer))
                 
                 # Convert to numpy array
                 audio_array = np.frombuffer(decoded_audio, dtype=np.int16)
