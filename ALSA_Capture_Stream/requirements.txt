@@ -1,0 +1,6 @@
+cffi==2.0.0
+numpy==2.2.6
+pycparser==2.23
+-e PyOgg/
+sounddevice==0.5.2
+paho-mqtt==2.1.0

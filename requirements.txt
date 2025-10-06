@@ -17,5 +17,9 @@ pillow==11.3.0
 PyOpenGL==3.1.9
 PyOpenGL-accelerate==3.1.9
 
+# Audio codec (for MQTT audio streaming in GUI)
+cffi==2.0.0
+pycparser==2.23
+
 # Misc utilities used outside Pi code
 pyserial==3.5
