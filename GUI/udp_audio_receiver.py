@@ -6,7 +6,10 @@ import sounddevice as sd
 import numpy as np
 from queue import Queue, Empty
 from typing import Optional
+from collections import deque
 import os
+import wave
+import io
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -111,6 +114,11 @@ class UDPAudioReceiver:
         self.channels = channels
         self.jitter_buffer_size = jitter_buffer_size
         self.playback_enabled = playback_enabled
+        
+        # Circular buffer for last 5 seconds of audio
+        max_samples = sample_rate * 5  # 5 seconds
+        self.audio_history = deque(maxlen=max_samples)
+        self.history_lock = threading.Lock()
         
         # Create UDP socket
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -284,6 +292,11 @@ class UDPAudioReceiver:
                 if self.channels > 1:
                     audio_array = audio_array.reshape(-1, self.channels)
                 
+                # Store in circular buffer for history
+                with self.history_lock:
+                    for sample in audio_array:
+                        self.audio_history.append(sample)
+                
                 # Queue for playback
                 try:
                     self.playback_queue.put_nowait({
@@ -332,13 +345,73 @@ class UDPAudioReceiver:
     
     def get_stats(self) -> dict:
         """Get receiver statistics."""
+        with self.history_lock:
+            buffer_duration = len(self.audio_history) / self.sample_rate
         return {
             'packets_received': self.packets_received,
             'packets_dropped': self.packets_dropped,
             'bytes_received': self.bytes_received,
             'packet_queue_size': self.packet_queue.qsize(),
-            'playback_queue_size': self.playback_queue.qsize()
+            'playback_queue_size': self.playback_queue.qsize(),
+            'buffer_duration': buffer_duration
         }
+    
+    def get_audio_buffer(self, duration: float = 5.0) -> np.ndarray:
+        """
+        Get the last N seconds of audio from the circular buffer.
+        
+        Args:
+            duration: Number of seconds to retrieve (max 5.0)
+            
+        Returns:
+            numpy array of int16 audio samples
+        """
+        duration = min(duration, 5.0)
+        num_samples = int(self.sample_rate * duration)
+        
+        with self.history_lock:
+            available = len(self.audio_history)
+            samples_to_get = min(num_samples, available)
+            
+            if samples_to_get == 0:
+                logger.warning("No audio in buffer")
+                return np.array([], dtype=np.int16)
+            
+            # Get the most recent samples
+            audio_data = list(self.audio_history)[-samples_to_get:]
+            return np.array(audio_data, dtype=np.int16)
+    
+    def export_audio_wav(self, duration: float = 5.0) -> bytes:
+        """
+        Export the last N seconds of audio as WAV file bytes.
+        
+        Args:
+            duration: Number of seconds to export (max 5.0)
+            
+        Returns:
+            WAV file as bytes
+        """
+        audio_data = self.get_audio_buffer(duration)
+        
+        if len(audio_data) == 0:
+            logger.warning("No audio to export")
+            return b''
+        
+        # Create WAV file in memory
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, 'wb') as wav_file:
+            wav_file.setnchannels(self.channels)
+            wav_file.setsampwidth(2)  # 2 bytes for int16
+            wav_file.setframerate(self.sample_rate)
+            wav_file.writeframes(audio_data.tobytes())
+        
+        return wav_buffer.getvalue()
+    
+    def clear_buffer(self) -> None:
+        """Clear the audio history buffer."""
+        with self.history_lock:
+            self.audio_history.clear()
+        logger.info("Audio buffer cleared")
     
     def close(self) -> None:
         """Close the receiver and cleanup resources."""

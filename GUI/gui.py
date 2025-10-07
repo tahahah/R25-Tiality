@@ -23,6 +23,14 @@ except ImportError:
     AUDIO_AVAILABLE = False
     logging.warning("Audio not available - install: pip install sounddevice numpy")
 
+# Audio classifier
+try:
+    from inference_manager import AudioClassifier
+    CLASSIFIER_AVAILABLE = True
+except ImportError:
+    CLASSIFIER_AVAILABLE = False
+    logging.warning("Audio classifier not available")
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, 
@@ -160,6 +168,15 @@ class ExplorerGUI:
                 self.audio_receiver = None
         elif self.audio_enabled:
             logger.warning("Audio dependencies missing")
+        
+        # Initialize audio classifier
+        self.audio_classifier = None
+        if CLASSIFIER_AVAILABLE:
+            try:
+                self.audio_classifier = AudioClassifier()
+                logger.info("Audio classifier initialized")
+            except Exception as e:
+                logger.error(f"Audio classifier failed: {e}")
 
         # Setup timing
         self.clock = pygame.time.Clock()
@@ -439,6 +456,7 @@ class ExplorerGUI:
             "  Arrow Keys - Control gimbal X/Y axes",
             "  X/C - Control crane servo up/down",
             "  Space - Emergency stop",
+            "  R - Classify last 5 seconds of audio",
             "  TODO: 1, 2 - Toggle cameras",
             "  H - Show/hide this help",
             "  ESC - Exit",
@@ -609,6 +627,8 @@ class ExplorerGUI:
             self.running = False
         elif key == pygame.K_h:
             self.show_help()
+        elif key == pygame.K_r:
+            self._handle_classify_audio()
         elif key in (pygame.K_1, pygame.K_2):
             self._handle_camera_toggle(key)
         elif key in (pygame.K_x, pygame.K_c):
@@ -645,6 +665,56 @@ class ExplorerGUI:
     def _handle_gimbal_key_release(self, event: pygame.event.Event) -> None:
         """Handle gimbal key releases (currently no action needed)"""
         pass
+    
+    def _handle_classify_audio(self) -> None:
+        """Handle audio classification request."""
+        if not self.audio_receiver:
+            logger.warning("Audio receiver not available for classification")
+            return
+        
+        if not self.audio_classifier:
+            logger.warning("Audio classifier not available")
+            return
+        
+        try:
+            logger.info("Capturing last 5 seconds of audio for classification...")
+            
+            # Get audio buffer stats
+            stats = self.audio_receiver.get_stats()
+            buffer_duration = stats.get('buffer_duration', 0)
+            logger.info(f"Audio buffer contains {buffer_duration:.1f} seconds")
+            
+            # Get audio data
+            audio_data = self.audio_receiver.get_audio_buffer(duration=5.0)
+            
+            if len(audio_data) == 0:
+                logger.warning("No audio available in buffer")
+                return
+            
+            # Classify audio
+            logger.info(f"Classifying {len(audio_data)} audio samples...")
+            result = self.audio_classifier.classify_audio(
+                audio_data,
+                sample_rate=self.audio_receiver.sample_rate
+            )
+            
+            # Log results
+            logger.info("=" * 50)
+            logger.info("AUDIO CLASSIFICATION RESULT")
+            logger.info("=" * 50)
+            logger.info(f"Top Prediction: {result['top_prediction']}")
+            logger.info(f"Confidence: {result['top_confidence']:.1%}")
+            logger.info(f"Duration: {result['duration']:.2f}s")
+            logger.info(f"All predictions:")
+            for pred in result['predictions']:
+                logger.info(f"  - {pred['animal']}: {pred['confidence']:.1%}")
+            logger.info("=" * 50)
+            
+            # TODO: Display results in GUI overlay
+            # For now, results are logged to console
+            
+        except Exception as e:
+            logger.error(f"Error during audio classification: {e}", exc_info=True)
 
     def handle_events(self) -> None:
         """Handle all pygame events."""
@@ -777,6 +847,12 @@ class ExplorerGUI:
         if self.audio_receiver:
             return self.audio_receiver.get_stats()
         return None
+    
+    def get_classification_history(self, limit: int = 10) -> list:
+        """Get recent classification history."""
+        if self.audio_classifier:
+            return self.audio_classifier.get_history(limit)
+        return []
 
 
 # ============================================================================
