@@ -1,22 +1,3 @@
-"""
-UDP Audio Receiver for R25-Tiality GUI
-
-This module receives Opus-encoded audio packets via UDP and plays them in real-time.
-
-ARCHITECTURE NOTE - PyOgg vs System Libraries:
----------------------------------------------
-This implementation uses SYSTEM Opus libraries (via ctypes) instead of PyOgg.
-
-Why?
-- Pi uses PyOgg with ARM-compiled libraries
-- Mac uses system libopus installed via Homebrew (ARM64/x86_64)
-- Cross-architecture compatibility without copying libraries
-- Simpler setup: just `brew install opus` on Mac
-
-The SimpleOpusDecoder class provides direct ctypes bindings to system libopus,
-avoiding PyOgg dependency and architecture conflicts on the GUI side.
-"""
-
 import socket
 import struct
 import logging

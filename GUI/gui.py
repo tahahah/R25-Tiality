@@ -327,6 +327,7 @@ class ExplorerGUI:
         """
         #TODO: Add multiple camera functionality
         self.camera_surfaces[0] = self.server_manager.get_video_frame()
+        
         # print(type(self.server_manager.get_video_frame()))
 
     def _draw_cameras(self) -> None:

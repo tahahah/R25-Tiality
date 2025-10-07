@@ -28,7 +28,7 @@ parser = argparse.ArgumentParser(
     description="Captures and encodes audio packets from the supplied ALSA device."
 )
 parser.add_argument('-d', '--device', help='ALSA device to use, specified as <card>,<device>, e.g., `1,0`', type=device_parser)
-parser.add_argument('-c', '--capch', help='Number of channels to capture', default=2, choices=[1,2,4], type=int)
+parser.add_argument('-c', '--capch', help='Number of channels to capture', default=1, choices=[1,2,4], type=int)
 parser.add_argument('-e', '--encch', help='Number of channels to encode', default=1, choices=[1,2], type=int)
 parser.add_argument('-s', '--stream', help='Enable UDP streaming mode (sends to GUI)', action='store_true')
 parser.add_argument('--host', help='Target host/IP for UDP streaming (default: localhost)', default='localhost', type=str)

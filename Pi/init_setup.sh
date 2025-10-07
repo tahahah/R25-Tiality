@@ -28,7 +28,14 @@ python3 -m venv "$VENV_DIR" --system-site-packages
 echo "--- Installing Python packages into the venv ---"
 # Intentionally omit numpy/opencv to avoid conflicts; rely on system packages
 pip install --upgrade pip
-pip install paho-mqtt pyserial RPi.GPIO aiortc av grpcio grpcio-tools protobuf pillow pygame pigpio pynput
+pip install -r "$SCRIPT_DIR/requirements.txt"
+
+cd ..
+pwd
+cd ALSA_Capture_Stream
+# pip install -r "requirements.txt"
+cd "$SCRIPT_DIR"
+
 
 echo "--- Starting pigpio daemon ---"
 sudo systemctl enable pigpiod
