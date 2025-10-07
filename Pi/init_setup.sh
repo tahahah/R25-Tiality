@@ -15,7 +15,11 @@ VENV_DIR="$SCRIPT_DIR/.venv_pi"
 
 echo "--- Installing system packages (requires sudo) ---"
 sudo apt update
-sudo apt install -y python3-picamera2 python3-opencv python3-numpy libportaudio2 portaudio19-dev --no-install-recommends
+sudo apt install -y python3-picamera2 python3-opencv python3-numpy \
+    libportaudio2 portaudio19-dev \
+    libopus0 libopusfile0 libopusenc0 \
+    libogg0 libvorbis0a libvorbisfile3 libvorbisenc2 \
+     --no-install-recommends
 
 echo "--- Creating virtual environment with system site packages ---"
 if [ -d "$VENV_DIR" ]; then
