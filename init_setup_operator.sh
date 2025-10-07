@@ -308,6 +308,43 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Check if mosquitto broker is running on the specified port
+echo "Checking for MQTT broker on port $BROKER_PORT..."
+if lsof -Pi :$BROKER_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+    echo "✓ MQTT broker already running on port $BROKER_PORT"
+else
+    echo "MQTT broker not found. Starting mosquitto..."
+    
+    # Check if mosquitto is installed
+    if ! command -v mosquitto &> /dev/null; then
+        echo "ERROR: mosquitto not found. Install with: brew install mosquitto"
+        exit 1
+    fi
+    
+    # Create temporary MQTT config
+    cat > /tmp/mqtt-test.conf <<'MQTT_EOF'
+allow_anonymous true
+socket_domain ipv4
+listener 2883 0.0.0.0
+MQTT_EOF
+    
+    # Start mosquitto in background
+    echo "Starting mosquitto broker on port $BROKER_PORT..."
+    mosquitto -c /tmp/mqtt-test.conf -v &
+    MOSQUITTO_PID=$!
+    
+    # Wait a moment for broker to start
+    sleep 1
+    
+    # Verify it started
+    if lsof -Pi :$BROKER_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+        echo "✓ MQTT broker started successfully (PID: $MOSQUITTO_PID)"
+    else
+        echo "ERROR: Failed to start MQTT broker"
+        exit 1
+    fi
+fi
+
 # Activate virtual environment
 source "$SCRIPT_DIR/.venv_operator/bin/activate"
 
@@ -342,11 +379,11 @@ echo -e "${GREEN}✓ Setup Complete!${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 echo -e "\n${YELLOW}Quick Start:${NC}"
-echo -e "  1. Activate environment:"
-echo -e "     ${GREEN}source activate_operator.sh${NC}"
-echo -e ""
-echo -e "  2. Run GUI with audio:"
+echo -e "  1. Run GUI with Audio (Auto Starts MQTT Broker):"
 echo -e "     ${GREEN}./run_gui.sh${NC}"
+echo -e ""
+echo -e "  2. Activate environment only:"
+echo -e "     ${GREEN}source activate_operator.sh${NC}"
 echo -e ""
 echo -e "  Or manually:"
 echo -e "     ${GREEN}source .venv_operator/bin/activate${NC}"
