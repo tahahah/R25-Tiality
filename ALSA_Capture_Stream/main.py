@@ -10,164 +10,152 @@ from encoder_object import EncoderObject
 from decoder_object import DecoderObject
 from udp_audio_sender import UDPAudioSender
 
-# Create argument parser
 def device_parser(user_input: str) -> argparse.ArgumentTypeError | dict[str, int]:
-    if (',' not in user_input):
-        raise argparse.ArgumentTypeError
-    user_input_split = user_input.split(',')
-    if (len(user_input_split) != 2):
-        raise argparse.ArgumentTypeError
-    card = user_input_split[0]
-    device = user_input_split[1]
-    if ((not card.isdigit()) or (not device.isdigit())):
-        raise argparse.ArgumentTypeError
+    """Parse ALSA device argument in format 'card,device'."""
+    if ',' not in user_input:
+        raise argparse.ArgumentTypeError("Device must be in format: card,device")
+    parts = user_input.split(',')
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError("Device must have exactly 2 parts")
+    card, device = parts
+    if not (card.isdigit() and device.isdigit()):
+        raise argparse.ArgumentTypeError("Card and device must be integers")
     return {"card": int(card), "device": int(device)}
 
 parser = argparse.ArgumentParser(
-    prog="PiAudioThread",
-    description="Captures and encodes audio packets from the supplied ALSA device."
+    prog="PiAudioStream",
+    description="Captures and encodes audio from ALSA device."
 )
-parser.add_argument('-d', '--device', help='ALSA device to use, specified as <card>,<device>, e.g., `1,0`', type=device_parser)
-parser.add_argument('-c', '--capch', help='Number of channels to capture', default=1, choices=[1,2,4], type=int)
-parser.add_argument('-e', '--encch', help='Number of channels to encode', default=1, choices=[1,2], type=int)
-parser.add_argument('-s', '--stream', help='Enable UDP streaming mode (sends to GUI)', action='store_true')
-parser.add_argument('--host', help='Target host/IP for UDP streaming (default: localhost)', default='localhost', type=str)
-parser.add_argument('--port', help='Target UDP port for streaming (default: 5005)', default=5005, type=int)
-parser.add_argument('--duration', help='Recording duration in seconds for test mode (default: 5)', default=5, type=int)
+parser.add_argument('-d', '--device', type=device_parser,
+                    help='ALSA device as <card>,<device>, e.g., 1,0')
+parser.add_argument('-c', '--capch', type=int, default=1, choices=[1, 2, 4],
+                    help='Number of channels to capture')
+parser.add_argument('-e', '--encch', type=int, default=1, choices=[1, 2],
+                    help='Number of channels to encode')
+parser.add_argument('-s', '--stream', action='store_true',
+                    help='Enable UDP streaming mode')
+parser.add_argument('--host', type=str, default='localhost',
+                    help='Target host/IP for streaming (default: localhost)')
+parser.add_argument('--port', type=int, default=5005,
+                    help='Target UDP port (default: 5005)')
+parser.add_argument('--duration', type=int, default=5,
+                    help='Test recording duration in seconds (default: 5)')
 args = parser.parse_args()
 
-# If no device is supplied, use the default
-if (args.device):
-    interface = args.device
-else:
-    interface = {"card": 0, "device": 6}
+# Use provided device or default
+interface = args.device if args.device else {"card": 0, "device": 6}
 
-# Initialise global settings
+# Initialize global settings
 settings.init()
 settings.captured_channels = args.capch
-settings.encoded_channels = args.encch
-if (settings.captured_channels < settings.encoded_channels):
-    settings.encoded_channels = settings.captured_channels
-if (settings.captured_channels < settings.encoded_channel_pick):
+settings.encoded_channels = min(args.encch, args.capch)
+if settings.captured_channels < settings.encoded_channel_pick:
     settings.encoded_channel_pick = settings.captured_channels
 
-# Create buffer
+# Create audio buffers
 capture_buffer = bytearray(settings.frame_bytes * settings.captured_channels)
 encoder_buffer = bytearray(settings.frame_bytes * settings.encoded_channels)
+packet_queue = Queue(settings.queue_size)  # 100-packet FIFO (2 seconds @ 20ms frames)
 
-# Create a 100-packet FIFO queue
-# For 20 ms packets, this is two seconds of audio
-packet_queue = Queue(settings.queue_size)
-
-# Create capture object
+# Initialize audio processing objects
 capture = CaptureObject(capture_buffer, interface)
 capture.start()
-
-# Create encoder object
 encoder = EncoderObject(capture_buffer, encoder_buffer)
-
-# Create a decoder object
 decoder = DecoderObject()
 
-# Create UDP sender if streaming mode is enabled
+# Initialize UDP sender for streaming mode
 udp_sender = None
 if args.stream:
     udp_sender = UDPAudioSender(args.host, args.port)
-    print(f"UDP Streaming enabled: {args.host}:{args.port}")
-
-# Forever:
-# 1. Fill encoder buffer with raw data
-# 2. Encode buffer in place
-# 3. Copy buffer to queue (or send via UDP)
-# Time duration to complete steps after data buffer fills and raise warning if > 20 ms
+    print(f"UDP streaming to: {args.host}:{args.port}")
 
 record_start_time = time()
 record_duration = args.duration
 
-print("""
+print(f"""
 ==================
-Recording settings
+Audio Settings
 ==================
-Mode: {}
-Packet size: {} ms
-Queue size: {} packets
-Interface: {}
-Sample rate: {}
-Captured channels: {}
-Encoded channels: {}
-""".format("STREAMING" if args.stream else "TEST", 20, settings.queue_size, interface, settings.sample_rate, settings.captured_channels, settings.encoded_channels))
+Mode:              {'STREAMING' if args.stream else 'TEST'}
+Packet size:       20 ms
+Queue size:        {settings.queue_size} packets
+Interface:         {interface}
+Sample rate:       {settings.sample_rate} Hz
+Capture channels:  {settings.captured_channels}
+Encode channels:   {settings.encoded_channels}
+""")
 
 if args.stream:
-    print(f"Streaming audio to {args.host}:{args.port}...")
+    print(f"Streaming to {args.host}:{args.port}...")
     print("Press Ctrl+C to stop")
     try:
         while True:
-            # Fill buffer
             capture.read()
             packet_start_time = time()
-
-            # Encode buffer
             header = encoder.encode()
-
-            # Send via UDP
-            audio_data = bytes(encoder_buffer[0:header["packet_length"]])
-            udp_sender.send_packet(header, audio_data)
-
-            # Check time
-            packet_duration = time() - packet_start_time
-            if (packet_duration > settings.frame_duration):
-                print("Wall-to-wall time is greater than frame duration (expected: <{}, actual: {})".format(settings.frame_duration, packet_duration))
             
-            # Print stats every 100 packets
+            # Send encoded audio via UDP
+            audio_data = bytes(encoder_buffer[:header["packet_length"]])
+            udp_sender.send_packet(header, audio_data)
+            
+            # Warn if processing exceeds frame duration
+            packet_duration = time() - packet_start_time
+            if packet_duration > settings.frame_duration:
+                print(f"Warning: Processing time {packet_duration:.3f}s > frame duration {settings.frame_duration}s")
+            
+            # Log stats periodically
             if header["sequence_number"] % 100 == 0:
                 stats = udp_sender.get_stats()
-                print(f"Sent {stats['packets_sent']} packets, {stats['bytes_sent']} bytes")
+                print(f"Sent: {stats['packets_sent']} packets, {stats['bytes_sent']} bytes")
     except KeyboardInterrupt:
-        print("\nStopping stream...")
+        print("\nStopping...")
         udp_sender.close()
         capture.stop()
 else:
+    # Test mode: record and playback
     print(f"Recording {record_duration} seconds...")
     while time() - record_start_time < record_duration:
-        # Fill buffer
         capture.read()
         packet_start_time = time()
-
-        # Encode buffer
         header = encoder.encode()
-
-        # Queue
-        if (packet_queue.full()):
-            packet_queue.get_nowait() # Discard first item
-        packet_queue.put_nowait({"header": deepcopy(header), "data": bytes(encoder_buffer[0:header["packet_length"]])})
-
-        # Check time
+        
+        # Queue with FIFO behavior
+        if packet_queue.full():
+            packet_queue.get_nowait()
+        packet_queue.put_nowait({
+            "header": deepcopy(header),
+            "data": bytes(encoder_buffer[:header["packet_length"]])
+        })
+        
+        # Warn if processing exceeds frame duration
         packet_duration = time() - packet_start_time
-        if (packet_duration > settings.frame_duration):
-            print("Wall-to-wall time is greater than frame duration (expected: <{}, actual: {})".format(settings.frame_duration, packet_duration))
-
-    print("Playing queue of last two seconds...")
-    # Create a silent buffer
+        if packet_duration > settings.frame_duration:
+            print(f"Warning: Processing time {packet_duration:.3f}s > frame duration {settings.frame_duration}s")
+    
+    # Playback queued audio
+    print("Playing back last 2 seconds...")
     silence_bytes = bytes(settings.frame_bytes)
-    audio_data = [silence_bytes]*(settings.queue_size)
+    audio_data = [silence_bytes] * settings.queue_size
     initial_seq_number = -1
-    while (not packet_queue.empty()):
+    
+    while not packet_queue.empty():
         encoded_packet = packet_queue.get_nowait()
         sequence_number = encoded_packet["header"]["sequence_number"]
-        offset = sequence_number - initial_seq_number
-
-        # Set the initial sequence number
-        if (initial_seq_number == -1):
+        
+        if initial_seq_number == -1:
             initial_seq_number = sequence_number
             offset = 0
-
-        # Pad the audio data in case packets were queued out-of-order (shouldn't happen here, but could over network)
-        if (offset < 0):
+        else:
+            offset = sequence_number - initial_seq_number
+        
+        # Handle out-of-order packets
+        if offset < 0:
             audio_data = audio_data[offset:] + audio_data[:offset]
         
-        # Decode
         audio_data[offset] = decoder.decode(encoded_packet["data"])
+    
+    # Play decoded audio
     audio_array = np.frombuffer(b''.join(audio_data), dtype=np.int16)
-    if (settings.encoded_channels > 1):
+    if settings.encoded_channels > 1:
         audio_array = audio_array.reshape(-1, settings.encoded_channels)
     sd.play(audio_array, samplerate=settings.sample_rate, blocking=True)

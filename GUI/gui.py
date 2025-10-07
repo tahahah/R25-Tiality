@@ -15,13 +15,13 @@ sys.path.append(parent_dir)
 # Now you can import modules from the parent directory
 from tiality_server import TialityServerManager
 
-# Import audio receiver
+# Audio receiver (optional)
 try:
     from GUI.udp_audio_receiver import UDPAudioReceiver
     AUDIO_AVAILABLE = True
 except ImportError:
     AUDIO_AVAILABLE = False
-    logging.warning("Audio receiver not available (missing dependencies)")
+    logging.warning("Audio not available - install: pip install sounddevice numpy")
 
 # Configure logging
 logging.basicConfig(
@@ -96,8 +96,11 @@ class ExplorerGUI:
         Args:
             background_image_path: Path to the background image file
             command_callback: Callback function for handling commands to PI
-            audio_enabled: Whether to enable audio streaming reception
-            audio_port: UDP port to listen for audio streams
+            is_robot: Whether running in robot mode (vs simulation)
+            mqtt_broker_host_ip: MQTT broker host/IP
+            mqtt_port: MQTT broker port
+            audio_enabled: Whether to enable audio streaming
+            audio_port: UDP port to listen for audio
         """
         # Initialise core components
         pygame.init()
@@ -140,7 +143,7 @@ class ExplorerGUI:
             )
         self.server_manager.start_servers()
         
-        # Setup audio receiver if enabled
+        # Initialize audio receiver
         self.audio_receiver = None
         if self.audio_enabled and AUDIO_AVAILABLE:
             try:
@@ -151,12 +154,12 @@ class ExplorerGUI:
                     playback_enabled=True
                 )
                 self.audio_receiver.start()
-                logger.info(f"Audio receiver started on port {audio_port}")
+                logger.info(f"Audio streaming on port {audio_port}")
             except Exception as e:
-                logger.error(f"Failed to start audio receiver: {e}")
+                logger.error(f"Audio receiver failed: {e}")
                 self.audio_receiver = None
-        elif self.audio_enabled and not AUDIO_AVAILABLE:
-            logger.warning("Audio enabled but dependencies not available")
+        elif self.audio_enabled:
+            logger.warning("Audio dependencies missing")
 
         # Setup timing
         self.clock = pygame.time.Clock()
@@ -756,17 +759,15 @@ class ExplorerGUI:
 
     def cleanup(self) -> None:
         """Clean up resources before exit."""
-        logger.info("Cleaning up resources...")
+        logger.info("Cleaning up...")
         
-        # Close audio receiver
         if self.audio_receiver:
             try:
                 self.audio_receiver.close()
                 logger.info("Audio receiver closed")
             except Exception as e:
-                logger.error(f"Error closing audio receiver: {e}")
+                logger.error(f"Audio cleanup error: {e}")
         
-        # Close server manager
         self.server_manager.close_servers()
         pygame.quit()
         sys.exit()
@@ -789,9 +790,12 @@ if __name__ == "__main__":
     parser.add_argument("--robot", action='store_true', help="Whether to run the robot or sim")
     parser.add_argument("--broker", default="localhost", help="MQTT broker host/IP for robot mode")
     parser.add_argument("--broker_port", type=int, default=1883, help="MQTT broker TCP port for robot mode")
-    parser.add_argument("--audio", action='store_true', default=True, help="Enable audio streaming (default: True)")
-    parser.add_argument("--no-audio", action='store_false', dest='audio', help="Disable audio streaming")
-    parser.add_argument("--audio_port", type=int, default=5005, help="UDP port for audio streaming (default: 5005)")
+    parser.add_argument("--audio", action='store_true', default=True,
+                        help="Enable audio streaming (default: True)")
+    parser.add_argument("--no-audio", action='store_false', dest='audio',
+                        help="Disable audio streaming")
+    parser.add_argument("--audio_port", type=int, default=5005,
+                        help="UDP port for audio (default: 5005)")
     args = parser.parse_args()
     gui_type = "Robot" if args.robot else "Sim"
     print(f"Wildlife Explorer for {gui_type}")

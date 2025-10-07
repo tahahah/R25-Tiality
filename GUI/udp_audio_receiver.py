@@ -6,19 +6,7 @@ import sounddevice as sd
 import numpy as np
 from queue import Queue, Empty
 from typing import Optional
-import sys
 import os
-
-# Note: PyOgg directory check kept for backwards compatibility
-# but not required when using system Opus libraries
-gui_dir = os.path.dirname(os.path.abspath(__file__))
-pyogg_dir = os.path.join(gui_dir, 'PyOgg')
-if os.path.exists(pyogg_dir):
-    sys.path.insert(0, pyogg_dir)
-
-# Add parent directory to path
-parent_dir = os.path.abspath(os.path.join(gui_dir, '..'))
-sys.path.append(parent_dir)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 class SimpleOpusDecoder:
     """Simple Opus decoder using system libopus."""
+    OPUS_OK = 0
     
     def __init__(self, libopus, sample_rate: int, channels: int):
         """Initialize Opus decoder with system library."""
@@ -34,9 +23,6 @@ class SimpleOpusDecoder:
         self.libopus = libopus
         self.sample_rate = sample_rate
         self.channels = channels
-        
-        # Opus constants
-        OPUS_OK = 0
         
         # Define C function signatures
         self.libopus.opus_decoder_get_size.argtypes = [ctypes.c_int]
@@ -67,7 +53,7 @@ class SimpleOpusDecoder:
             ctypes.byref(error)
         )
         
-        if error.value != OPUS_OK or not self.decoder:
+        if error.value != self.OPUS_OK or not self.decoder:
             raise RuntimeError(f"Failed to create Opus decoder: {error.value}")
         
         logger.info(f"Opus decoder created: {sample_rate}Hz, {channels} channel(s)")
@@ -76,42 +62,29 @@ class SimpleOpusDecoder:
         """Decode an Opus packet to PCM audio."""
         import ctypes
         
-        # Maximum frame size for Opus (120ms at 48kHz)
-        max_frame_size = 5760
-        
-        # Create output buffer
+        max_frame_size = 5760  # Maximum frame size for Opus (120ms at 48kHz)
         pcm_buffer = (ctypes.c_int16 * (max_frame_size * self.channels))()
-        
-        # Convert input to ctypes
         encoded_data = (ctypes.c_ubyte * len(encoded_packet)).from_buffer(encoded_packet)
         
-        # Decode
         num_samples = self.libopus.opus_decode(
             self.decoder,
             encoded_data,
             len(encoded_packet),
             pcm_buffer,
             max_frame_size,
-            0  # decode_fec = 0
+            0  # decode_fec
         )
         
         if num_samples < 0:
             raise RuntimeError(f"Opus decode error: {num_samples}")
         
-        # Convert int16 array to bytes properly
-        # Calculate total bytes (2 bytes per int16 sample)
-        total_samples = num_samples * self.channels
-        total_bytes = total_samples * 2
-        
-        # Use ctypes.string_at to get raw bytes from the buffer
+        total_bytes = num_samples * self.channels * 2  # 2 bytes per int16 sample
         return ctypes.string_at(ctypes.addressof(pcm_buffer), total_bytes)
 
 
 class UDPAudioReceiver:
     """Receives and plays encoded audio packets via UDP."""
-    
-    # Must match sender's header format
-    HEADER_FORMAT = '!IQH'  # unsigned int, unsigned long long, unsigned short
+    HEADER_FORMAT = '!IQH'  # Must match sender: seq_num(4), timestamp(8), data_len(2)
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
     MAX_PACKET_SIZE = 2048
     
@@ -141,17 +114,15 @@ class UDPAudioReceiver:
         
         # Create UDP socket
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 65536)  # Increase receive buffer
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 65536)
         self.socket.bind(('', listen_port))
-        self.socket.settimeout(0.1)  # Non-blocking with timeout
+        self.socket.settimeout(0.1)
         
-        # Packet queue for jitter buffering
-        self.packet_queue = Queue(maxsize=100)
+        # Processing queues
+        self.packet_queue = Queue(maxsize=100)  # Jitter buffer
+        self.playback_queue = Queue(maxsize=50)  # Decoded audio buffer
         
-        # Playback buffer
-        self.playback_queue = Queue(maxsize=50)
-        
-        # Threading
+        # Threading control
         self.running = False
         self.receive_thread: Optional[threading.Thread] = None
         self.decode_thread: Optional[threading.Thread] = None
@@ -163,51 +134,46 @@ class UDPAudioReceiver:
         self.bytes_received = 0
         self.last_sequence_number = -1
         
-        # Decoder (lazy init)
-        self.decoder = None
+        self.decoder = None  # Lazy initialized
         
         logger.info(f"UDP Audio Receiver initialized on port {listen_port}")
     
     def _init_decoder(self):
         """Lazy initialize the Opus decoder."""
-        if self.decoder is None:
-            try:
-                # Use system Opus library directly (works on macOS with Homebrew)
-                import ctypes
-                import ctypes.util
-                
-                # Find system Opus library
-                opus_lib_path = ctypes.util.find_library('opus')
-                
-                # If not found, try common Homebrew paths on macOS
-                if not opus_lib_path:
-                    import platform
-                    if platform.system() == 'Darwin':
-                        homebrew_paths = [
-                            '/opt/homebrew/lib/libopus.dylib',  # Apple Silicon
-                            '/usr/local/lib/libopus.dylib',      # Intel Mac
-                            '/opt/homebrew/opt/opus/lib/libopus.dylib',  # Homebrew opt
-                            '/usr/local/opt/opus/lib/libopus.dylib'
-                        ]
-                        for path in homebrew_paths:
-                            if os.path.exists(path):
-                                opus_lib_path = path
-                                break
-                
-                if not opus_lib_path:
-                    raise ImportError("System Opus library not found. Install via: brew install opus")
-                
-                logger.info(f"Using system Opus library: {opus_lib_path}")
-                libopus = ctypes.CDLL(opus_lib_path)
-                
-                # Create a simple Opus decoder wrapper
-                self.decoder = SimpleOpusDecoder(libopus, self.sample_rate, self.channels)
-                
-                logger.info("Opus decoder initialized")
-            except ImportError as e:
-                logger.error(f"Failed to import decoder: {e}")
-                logger.info("Install Opus: brew install opus")
-                raise
+        if self.decoder is not None:
+            return
+            
+        try:
+            import ctypes
+            import ctypes.util
+            import platform
+            
+            opus_lib_path = ctypes.util.find_library('opus')
+            
+            # Try common Homebrew paths on macOS if not found
+            if not opus_lib_path and platform.system() == 'Darwin':
+                homebrew_paths = [
+                    '/opt/homebrew/lib/libopus.dylib',
+                    '/usr/local/lib/libopus.dylib',
+                    '/opt/homebrew/opt/opus/lib/libopus.dylib',
+                    '/usr/local/opt/opus/lib/libopus.dylib'
+                ]
+                for path in homebrew_paths:
+                    if os.path.exists(path):
+                        opus_lib_path = path
+                        break
+            
+            if not opus_lib_path:
+                raise ImportError("System Opus library not found. Install via: brew install opus")
+            
+            logger.info(f"Using system Opus library: {opus_lib_path}")
+            libopus = ctypes.CDLL(opus_lib_path)
+            self.decoder = SimpleOpusDecoder(libopus, self.sample_rate, self.channels)
+            logger.info("Opus decoder initialized")
+        except ImportError as e:
+            logger.error(f"Failed to import decoder: {e}")
+            logger.info("Install Opus: brew install opus")
+            raise
     
     def start(self) -> None:
         """Start receiving and playing audio."""
@@ -252,17 +218,15 @@ class UDPAudioReceiver:
         
         while self.running:
             try:
-                # Receive packet
-                data, addr = self.socket.recvfrom(self.MAX_PACKET_SIZE)
+                data, _ = self.socket.recvfrom(self.MAX_PACKET_SIZE)
                 
                 if len(data) < self.HEADER_SIZE:
                     logger.warning(f"Packet too small: {len(data)} bytes")
                     continue
                 
                 # Unpack header
-                header_bytes = data[:self.HEADER_SIZE]
                 sequence_number, timestamp, data_length = struct.unpack(
-                    self.HEADER_FORMAT, header_bytes
+                    self.HEADER_FORMAT, data[:self.HEADER_SIZE]
                 )
                 
                 # Extract audio data
@@ -274,27 +238,23 @@ class UDPAudioReceiver:
                     if sequence_number != expected:
                         lost = sequence_number - expected
                         self.packets_dropped += lost
-                        logger.debug(f"Packet loss detected: {lost} packets")
+                        logger.debug(f"Packet loss: {lost} packets")
                 
                 self.last_sequence_number = sequence_number
                 
                 # Queue packet for decoding
-                packet = {
-                    'sequence_number': sequence_number,
-                    'timestamp': timestamp,
-                    'data': audio_data
-                }
-                
                 try:
-                    self.packet_queue.put_nowait(packet)
+                    self.packet_queue.put_nowait({
+                        'sequence_number': sequence_number,
+                        'timestamp': timestamp,
+                        'data': audio_data
+                    })
                     self.packets_received += 1
                     self.bytes_received += len(data)
                 except:
-                    # Queue full, drop packet
                     self.packets_dropped += 1
                     
             except socket.timeout:
-                # No data received, continue
                 continue
             except Exception as e:
                 if self.running:
@@ -306,7 +266,6 @@ class UDPAudioReceiver:
         """Thread loop for decoding audio packets."""
         logger.info("Decode loop started")
         
-        # Initialize decoder
         try:
             self._init_decoder()
         except Exception as e:
@@ -315,31 +274,24 @@ class UDPAudioReceiver:
         
         while self.running:
             try:
-                # Get packet from queue
                 packet = self.packet_queue.get(timeout=0.1)
                 
-                # Decode audio (decoder expects mutable buffer)
+                # Decode audio
                 mutable_buffer = bytearray(packet['data'])
-                decoded_audio = bytes(self.decoder.decode(mutable_buffer))
-                
-                # Convert to numpy array
+                decoded_audio = self.decoder.decode(mutable_buffer)
                 audio_array = np.frombuffer(decoded_audio, dtype=np.int16)
                 
-                # Reshape for multi-channel if needed
                 if self.channels > 1:
                     audio_array = audio_array.reshape(-1, self.channels)
                 
                 # Queue for playback
-                playback_packet = {
-                    'sequence_number': packet['sequence_number'],
-                    'audio': audio_array
-                }
-                
                 try:
-                    self.playback_queue.put_nowait(playback_packet)
+                    self.playback_queue.put_nowait({
+                        'sequence_number': packet['sequence_number'],
+                        'audio': audio_array
+                    })
                 except:
-                    # Playback queue full, drop packet
-                    pass
+                    pass  # Queue full, drop packet
                     
             except Empty:
                 continue
@@ -353,7 +305,6 @@ class UDPAudioReceiver:
         """Thread loop for playing decoded audio."""
         logger.info("Playback loop started")
         
-        # Open audio output stream
         try:
             stream = sd.OutputStream(
                 samplerate=self.sample_rate,
@@ -367,19 +318,14 @@ class UDPAudioReceiver:
         
         while self.running:
             try:
-                # Get decoded packet
                 packet = self.playback_queue.get(timeout=0.1)
-                
-                # Play audio
                 stream.write(packet['audio'])
-                
             except Empty:
                 continue
             except Exception as e:
                 if self.running:
                     logger.error(f"Error in playback loop: {e}")
         
-        # Close stream
         stream.stop()
         stream.close()
         logger.info("Playback loop stopped")
@@ -395,13 +341,13 @@ class UDPAudioReceiver:
         }
     
     def close(self) -> None:
-        """Close the receiver."""
+        """Close the receiver and cleanup resources."""
         self.stop()
         try:
             self.socket.close()
             logger.info("UDP Audio Receiver closed")
         except Exception as e:
-            logger.error(f"Error closing receiver: {e}")
+            logger.error(f"Error closing socket: {e}")
 
 
 if __name__ == "__main__":

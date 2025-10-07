@@ -10,11 +10,9 @@ logger = logging.getLogger(__name__)
 
 class UDPAudioSender:
     """Sends encoded audio packets via UDP for low-latency streaming."""
-    
-    # Packet structure: [sequence_number (4 bytes)][timestamp (8 bytes)][data_length (2 bytes)][audio_data]
-    HEADER_FORMAT = '!IQH'  # unsigned int, unsigned long long, unsigned short
+    HEADER_FORMAT = '!IQH'  # seq_num(4), timestamp(8), data_len(2)
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
-    MAX_UDP_PACKET_SIZE = 1400  # Safe size to avoid fragmentation (MTU is typically 1500)
+    MAX_UDP_PACKET_SIZE = 1400  # Avoid UDP fragmentation (MTU ~1500)
     
     def __init__(
         self,
@@ -34,12 +32,10 @@ class UDPAudioSender:
         self.target_port = target_port
         self.local_port = local_port
         
-        # Create UDP socket
+        # Create non-blocking UDP socket
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         if local_port > 0:
             self.socket.bind(('', local_port))
-        
-        # Set socket to non-blocking mode for better performance
         self.socket.setblocking(False)
         
         # Statistics
@@ -61,32 +57,28 @@ class UDPAudioSender:
             True if packet sent successfully, False otherwise
         """
         try:
-            # Extract header info
             sequence_number = header.get('sequence_number', 0)
             timestamp = header.get('timestamp', 0)
             data_length = len(audio_data)
             
-            # Check if packet would be too large
+            # Truncate if packet too large
             total_size = self.HEADER_SIZE + data_length
             if total_size > self.MAX_UDP_PACKET_SIZE:
-                logger.warning(f"Packet too large ({total_size} bytes), truncating to {self.MAX_UDP_PACKET_SIZE}")
+                logger.warning(f"Packet too large ({total_size}B), truncating")
                 max_data_size = self.MAX_UDP_PACKET_SIZE - self.HEADER_SIZE
                 audio_data = audio_data[:max_data_size]
                 data_length = len(audio_data)
             
-            # Pack header + data
-            packet_header = struct.pack(
+            # Pack and send
+            packet = struct.pack(
                 self.HEADER_FORMAT,
                 sequence_number,
                 timestamp,
                 data_length
-            )
-            packet = packet_header + audio_data
+            ) + audio_data
             
-            # Send packet
             self.socket.sendto(packet, (self.target_host, self.target_port))
             
-            # Update statistics
             with self.stats_lock:
                 self.packets_sent += 1
                 self.bytes_sent += len(packet)
@@ -94,7 +86,6 @@ class UDPAudioSender:
             return True
             
         except BlockingIOError:
-            # Socket buffer full, skip this packet
             logger.debug("Socket buffer full, packet dropped")
             return False
         except Exception as e:
@@ -126,15 +117,12 @@ class UDPAudioSender:
 
 
 if __name__ == "__main__":
-    # Simple test
     sender = UDPAudioSender("localhost", 5005)
-    
-    # Send test packet
     test_header = {'sequence_number': 0, 'timestamp': 123456789}
     test_data = b'\x00' * 100
     
     if sender.send_packet(test_header, test_data):
-        print("Test packet sent successfully")
+        print("Test packet sent")
         print(f"Stats: {sender.get_stats()}")
     
     sender.close()
