@@ -97,7 +97,8 @@ class UDPAudioReceiver:
         sample_rate: int = 48000,
         channels: int = 1,
         jitter_buffer_size: int = 10,  # Number of packets to buffer
-        playback_enabled: bool = True
+        playback_enabled: bool = True,
+        test_mode: bool = False  # Skip Opus decoding for raw PCM testing
     ):
         """
         Initialize UDP audio receiver.
@@ -114,6 +115,7 @@ class UDPAudioReceiver:
         self.channels = channels
         self.jitter_buffer_size = jitter_buffer_size
         self.playback_enabled = playback_enabled
+        self.test_mode = test_mode
         
         # Circular buffer for last 5 seconds of audio
         max_samples = sample_rate * 5  # 5 seconds
@@ -144,7 +146,8 @@ class UDPAudioReceiver:
         
         self.decoder = None  # Lazy initialized
         
-        logger.info(f"UDP Audio Receiver initialized on port {listen_port}")
+        mode_str = "TEST MODE (raw PCM)" if test_mode else "normal (Opus)"
+        logger.info(f"UDP Audio Receiver initialized on port {listen_port} [{mode_str}]")
     
     def _init_decoder(self):
         """Lazy initialize the Opus decoder."""
@@ -274,20 +277,27 @@ class UDPAudioReceiver:
         """Thread loop for decoding audio packets."""
         logger.info("Decode loop started")
         
-        try:
-            self._init_decoder()
-        except Exception as e:
-            logger.error(f"Failed to initialize decoder: {e}")
-            return
+        # Initialize decoder only if not in test mode
+        if not self.test_mode:
+            try:
+                self._init_decoder()
+            except Exception as e:
+                logger.error(f"Failed to initialize decoder: {e}")
+                return
         
         while self.running:
             try:
                 packet = self.packet_queue.get(timeout=0.1)
                 
-                # Decode audio
-                mutable_buffer = bytearray(packet['data'])
-                decoded_audio = self.decoder.decode(mutable_buffer)
-                audio_array = np.frombuffer(decoded_audio, dtype=np.int16)
+                # Decode audio (or use raw PCM in test mode)
+                if self.test_mode:
+                    # Test mode: data is already raw PCM
+                    audio_array = np.frombuffer(packet['data'], dtype=np.int16)
+                else:
+                    # Normal mode: decode Opus
+                    mutable_buffer = bytearray(packet['data'])
+                    decoded_audio = self.decoder.decode(mutable_buffer)
+                    audio_array = np.frombuffer(decoded_audio, dtype=np.int16)
                 
                 if self.channels > 1:
                     audio_array = audio_array.reshape(-1, self.channels)

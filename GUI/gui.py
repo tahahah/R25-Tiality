@@ -99,6 +99,7 @@ class ExplorerGUI:
         mqtt_port: int = 1883,
         audio_enabled: bool = True,
         audio_port: int = 5005,
+        audio_test_mode: bool = False,
     ):
         """
         Args:
@@ -109,6 +110,7 @@ class ExplorerGUI:
             mqtt_port: MQTT broker port
             audio_enabled: Whether to enable audio streaming
             audio_port: UDP port to listen for audio
+            audio_test_mode: Skip Opus decoding for raw PCM testing
         """
         # Initialise core components
         pygame.init()
@@ -159,7 +161,8 @@ class ExplorerGUI:
                     listen_port=audio_port,
                     sample_rate=48000,
                     channels=1,
-                    playback_enabled=True
+                    playback_enabled=True,
+                    test_mode=audio_test_mode
                 )
                 self.audio_receiver.start()
                 logger.info(f"Audio streaming on port {audio_port}")
@@ -872,6 +875,8 @@ if __name__ == "__main__":
                         help="Disable audio streaming")
     parser.add_argument("--audio_port", type=int, default=5005,
                         help="UDP port for audio (default: 5005)")
+    parser.add_argument("--audio_test_mode", action='store_true',
+                        help="Enable audio test mode (raw PCM, no Opus decoding)")
     args = parser.parse_args()
     gui_type = "Robot" if args.robot else "Sim"
     print(f"Wildlife Explorer for {gui_type}")
@@ -899,7 +904,8 @@ if __name__ == "__main__":
             mqtt_broker_host_ip=args.broker, 
             mqtt_port=args.broker_port,
             audio_enabled=args.audio,
-            audio_port=args.audio_port
+            audio_port=args.audio_port,
+            audio_test_mode=args.audio_test_mode
         )
         gui.run()
     except KeyboardInterrupt:
