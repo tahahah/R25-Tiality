@@ -194,14 +194,5 @@ while true; do
     sleep 2
 done
 
-# Start Pi Video Viewer in the background
-
-# # Start WebRTC video server in the background
-# echo "Starting WebRTC video server..."
-# python3 "$SCRIPT_DIR/webrtc_server.py" &
-# VIDEO_PID=$!
-# echo "WebRTC video server started with PID $VIDEO_PID."
-
-
 # The script will only reach here if the mqtt bridge exits without Ctrl+C
 wait $VIDEO_PID

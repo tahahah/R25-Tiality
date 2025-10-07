@@ -33,7 +33,8 @@ pip install -r "$SCRIPT_DIR/requirements.txt"
 cd ..
 pwd
 cd ALSA_Capture_Stream
-# pip install -r "requirements.txt"
+pwd
+pip install -r "requirements.txt"
 cd "$SCRIPT_DIR"
 
 
