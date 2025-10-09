@@ -15,7 +15,9 @@ VENV_DIR="$SCRIPT_DIR/.venv_pi"
 
 echo "--- Installing system packages (requires sudo) ---"
 sudo apt update
+# Install system packages, including python3 versions of complex libraries
 sudo apt install -y python3-picamera2 python3-opencv python3-numpy \
+    python3-pygame python3-av python3-cffi \
     libportaudio2 portaudio19-dev \
     libopus0 libopusfile0 libopusenc0 \
     libogg0 libvorbis0a libvorbisfile3 libvorbisenc2 \
@@ -31,6 +33,13 @@ if ! command -v uv &> /dev/null; then
     # Add uv to PATH for the current session
     export PATH="$HOME/.local/bin:$PATH"
     echo "✓ uv installed successfully"
+
+    # Add uv to .bashrc to make it available in future sessions
+    UV_PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+    if ! grep -qF -- "$UV_PATH_LINE" ~/.bashrc; then
+        echo "Adding uv to ~/.bashrc for future sessions..."
+        echo "$UV_PATH_LINE" >> ~/.bashrc
+    fi
 else
     echo "✓ uv already installed"
 fi
