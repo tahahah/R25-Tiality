@@ -23,6 +23,7 @@ sudo apt install -y python3-picamera2 python3-opencv python3-numpy \
     libogg0 libvorbis0a libvorbisfile3 libvorbisenc2 \
     libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
     libavformat-dev libavcodec-dev libavdevice-dev libavutil-dev libswscale-dev libswresample-dev \
+    libsrtp2-dev \
      --no-install-recommends
 
 echo "--- Installing uv and creating virtual environment ---"
