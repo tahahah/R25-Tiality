@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# This script sets up the environment and starts both the video and MQTT services.
+# This script sets up the environment and starts video, MQTT, and audio streaming services.
 # The Pi will run the MQTT broker locally.
-# Example: ./setup.sh
+# Example: ./run_tiality.sh --video_server HOST:PORT --broker HOST --audio_host HOST
 
 set -e # Exit on any error
 
@@ -13,12 +13,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cleanup() {
     echo "\nShutting down services..."
     if [ -n "$VIDEO_PID" ]; then
-        kill $VIDEO_PID
+        kill $VIDEO_PID 2>/dev/null
         echo "gRPC video server (PID: $VIDEO_PID) stopped."
     fi
     if [ -n "$GIMBAL_PID" ]; then
-        kill $GIMBAL_PID
+        kill $GIMBAL_PID 2>/dev/null
         echo "Gimbal MQTT controller (PID: $GIMBAL_PID) stopped."
+    fi
+    if [ -n "$MQTT_PID" ]; then
+        kill $MQTT_PID 2>/dev/null
+        echo "MQTT->PWM controller (PID: $MQTT_PID) stopped."
+    fi
+    if [ -n "$AUDIO_PID" ]; then
+        kill $AUDIO_PID 2>/dev/null
+        echo "Audio streaming service (PID: $AUDIO_PID) stopped."
     fi
     exit 0
 }
@@ -42,9 +50,18 @@ echo "--- Parsing arguments ---"
 VIDEO_SERVER=""
 BROKER=""
 BROKER_PORT="1883"
+AUDIO_HOST=""
+AUDIO_PORT="5005"
 
 usage() {
-    echo "Usage: $0 [--video_server HOST:PORT] [--broker HOST] [--broker_port PORT]"
+    echo "Usage: $0 [OPTIONS]"
+    echo "Options:"
+    echo "  --video_server HOST:PORT    gRPC video server address"
+    echo "  --broker HOST               MQTT broker address"
+    echo "  --broker_port PORT          MQTT broker port (default: 1883)"
+    echo "  --audio_host HOST           Target host for audio streaming"
+    echo "  --audio_port PORT           Target UDP port for audio (default: 5005)"
+    echo "  -h, --help                  Show this help message"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -55,6 +72,10 @@ while [[ $# -gt 0 ]]; do
             BROKER="$2"; shift 2;;
         --broker_port)
             BROKER_PORT="$2"; shift 2;;
+        --audio_host)
+            AUDIO_HOST="$2"; shift 2;;
+        --audio_port)
+            AUDIO_PORT="$2"; shift 2;;
         -h|--help)
             usage; exit 0;;
         *)
@@ -71,6 +92,11 @@ if [ -n "$BROKER" ]; then
     echo "Using broker: $BROKER:$BROKER_PORT"
 else
     echo "broker not supplied; MQTT->PWM controller will not start"
+fi
+if [ -n "$AUDIO_HOST" ]; then
+    echo "Using audio streaming: $AUDIO_HOST:$AUDIO_PORT"
+else
+    echo "audio_host not supplied; audio streaming will not start"
 fi
 
 echo "--- Starting services ---"
@@ -102,6 +128,16 @@ start_gimbal_mqtt() {
     echo "Gimbal MQTT controller started with PID $GIMBAL_PID."
 }
 
+# Function to start Audio Streaming service
+start_audio_stream() {
+    echo "Starting Audio Streaming service..."
+    cd "$SCRIPT_DIR/../ALSA_Capture_Stream"
+    python3 main.py -c 1 -e 1 -d 3,0 --stream --host "$AUDIO_HOST" --port "$AUDIO_PORT" &
+    AUDIO_PID=$!
+    cd "$SCRIPT_DIR"
+    echo "Audio Streaming service started with PID $AUDIO_PID."
+}
+
 # Start requested services initially
 if [ -n "$VIDEO_SERVER" ]; then
     start_video_manager
@@ -110,10 +146,13 @@ if [ -n "$BROKER" ]; then
     start_mqtt_pwm
     start_gimbal_mqtt
 fi
+if [ -n "$AUDIO_HOST" ]; then
+    start_audio_stream
+fi
 
-# If neither service requested, print usage and exit
-if [ -z "$VIDEO_SERVER" ] && [ -z "$BROKER" ]; then
-    echo "No services requested. Provide --video_server and/or --broker."
+# If no service requested, print usage and exit
+if [ -z "$VIDEO_SERVER" ] && [ -z "$BROKER" ] && [ -z "$AUDIO_HOST" ]; then
+    echo "No services requested. Provide --video_server and/or --broker and/or --audio_host."
     usage
     exit 1
 fi
@@ -144,17 +183,16 @@ while true; do
         fi
     fi
 
+    # Check if Audio Streaming service is running (only if started)
+    if [ -n "$AUDIO_PID" ]; then
+        if ! kill -0 $AUDIO_PID 2>/dev/null; then
+            echo "Audio Streaming service (PID $AUDIO_PID) not running. Restarting..."
+            start_audio_stream
+        fi
+    fi
+
     sleep 2
 done
-
-# Start Pi Video Viewer in the background
-
-# # Start WebRTC video server in the background
-# echo "Starting WebRTC video server..."
-# python3 "$SCRIPT_DIR/webrtc_server.py" &
-# VIDEO_PID=$!
-# echo "WebRTC video server started with PID $VIDEO_PID."
-
 
 # The script will only reach here if the mqtt bridge exits without Ctrl+C
 wait $VIDEO_PID

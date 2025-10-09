@@ -20,5 +20,8 @@ pillow==11.3.0
 PyOpenGL==3.1.9
 PyOpenGL-accelerate==3.1.9
 
+# Audio streaming (operator PC and GUI)
+sounddevice
+
 # Misc utilities used outside Pi code
 pyserial==3.5

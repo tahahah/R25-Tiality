@@ -16,6 +16,22 @@ sys.path.append(parent_dir)
 from tiality_server import TialityServerManager
 from Inference import InferenceManager
 
+# Audio receiver (optional)
+try:
+    from GUI.udp_audio_receiver import UDPAudioReceiver
+    AUDIO_AVAILABLE = True
+except ImportError:
+    AUDIO_AVAILABLE = False
+    logging.warning("Audio not available - install: pip install sounddevice numpy")
+
+# Audio classifier
+try:
+    from inference_manager import AudioClassifier
+    CLASSIFIER_AVAILABLE = True
+except ImportError:
+    CLASSIFIER_AVAILABLE = False
+    logging.warning("Audio classifier not available")
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, 
@@ -82,17 +98,27 @@ class ExplorerGUI:
         is_robot: bool = True,
         mqtt_broker_host_ip: str = "localhost",
         mqtt_port: int = 1883,
+        audio_enabled: bool = True,
+        audio_port: int = 5005,
+        audio_test_mode: bool = False,
     ):
         """
         Args:
             background_image_path: Path to the background image file
             command_callback: Callback function for handling commands to PI
+            is_robot: Whether running in robot mode (vs simulation)
+            mqtt_broker_host_ip: MQTT broker host/IP
+            mqtt_port: MQTT broker port
+            audio_enabled: Whether to enable audio streaming
+            audio_port: UDP port to listen for audio
+            audio_test_mode: Skip Opus decoding for raw PCM testing
         """
         # Initialise core components
         pygame.init()
         self.config = GuiConfig()
         self.colours = Colour()
         self.is_robot = is_robot
+        self.audio_enabled = audio_enabled
         
         # Setup display and resources
         self._load_background(background_image_path)
@@ -128,6 +154,33 @@ class ExplorerGUI:
             self.joystick = None
             logger.warning(f"Joystick init failed: {e}")
         
+        # Initialize audio receiver
+        self.audio_receiver = None
+        if self.audio_enabled and AUDIO_AVAILABLE:
+            try:
+                self.audio_receiver = UDPAudioReceiver(
+                    listen_port=audio_port,
+                    sample_rate=48000,
+                    channels=1,
+                    playback_enabled=True,
+                    test_mode=audio_test_mode
+                )
+                self.audio_receiver.start()
+                logger.info(f"Audio streaming on port {audio_port}")
+            except Exception as e:
+                logger.error(f"Audio receiver failed: {e}")
+                self.audio_receiver = None
+        elif self.audio_enabled:
+            logger.warning("Audio dependencies missing")
+        
+        # Initialize audio classifier
+        self.audio_classifier = None
+        if CLASSIFIER_AVAILABLE:
+            try:
+                self.audio_classifier = AudioClassifier()
+                logger.info("Audio classifier initialized")
+            except Exception as e:
+                logger.error(f"Audio classifier failed: {e}")
 
         # Setup timing
         self.clock = pygame.time.Clock()
@@ -467,6 +520,7 @@ class ExplorerGUI:
             "  X/C - Control crane servo up/down",
             "  Space - Emergency stop",
             "  P - Toggle model inference ON/OFF",
+            "  R - Classify last 5 seconds of audio",
             "  TODO: 1, 2 - Toggle cameras",
             "  H - Show/hide this help",
             "  ESC - Exit",
@@ -643,6 +697,8 @@ class ExplorerGUI:
             self.show_help()
         elif key == pygame.K_p:
             self._toggle_vision_inference()
+        elif key == pygame.K_r:
+            self._handle_classify_audio()
         elif key in (pygame.K_1, pygame.K_2):
             self._handle_camera_toggle(key)
         elif key in (pygame.K_x, pygame.K_c):
@@ -679,6 +735,56 @@ class ExplorerGUI:
     def _handle_gimbal_key_release(self, event: pygame.event.Event) -> None:
         """Handle gimbal key releases (currently no action needed)"""
         pass
+    
+    def _handle_classify_audio(self) -> None:
+        """Handle audio classification request."""
+        if not self.audio_receiver:
+            logger.warning("Audio receiver not available for classification")
+            return
+        
+        if not self.audio_classifier:
+            logger.warning("Audio classifier not available")
+            return
+        
+        try:
+            logger.info("Capturing last 5 seconds of audio for classification...")
+            
+            # Get audio buffer stats
+            stats = self.audio_receiver.get_stats()
+            buffer_duration = stats.get('buffer_duration', 0)
+            logger.info(f"Audio buffer contains {buffer_duration:.1f} seconds")
+            
+            # Get audio data
+            audio_data = self.audio_receiver.get_audio_buffer(duration=5.0)
+            
+            if len(audio_data) == 0:
+                logger.warning("No audio available in buffer")
+                return
+            
+            # Classify audio
+            logger.info(f"Classifying {len(audio_data)} audio samples...")
+            result = self.audio_classifier.classify_audio(
+                audio_data,
+                sample_rate=self.audio_receiver.sample_rate
+            )
+            
+            # Log results
+            logger.info("=" * 50)
+            logger.info("AUDIO CLASSIFICATION RESULT")
+            logger.info("=" * 50)
+            logger.info(f"Top Prediction: {result['top_prediction']}")
+            logger.info(f"Confidence: {result['top_confidence']:.1%}")
+            logger.info(f"Duration: {result['duration']:.2f}s")
+            logger.info(f"All predictions:")
+            for pred in result['predictions']:
+                logger.info(f"  - {pred['animal']}: {pred['confidence']:.1%}")
+            logger.info("=" * 50)
+            
+            # TODO: Display results in GUI overlay
+            # For now, results are logged to console
+            
+        except Exception as e:
+            logger.error(f"Error during audio classification: {e}", exc_info=True)
 
     def _toggle_vision_inference(self) -> None:
         """Toggle model inference on/off when 'p' key is pressed."""
@@ -802,10 +908,30 @@ class ExplorerGUI:
 
     def cleanup(self) -> None:
         """Clean up resources before exit."""
-        logger.info("Cleaning up resources...")
+        logger.info("Cleaning up...")
+        
+        if self.audio_receiver:
+            try:
+                self.audio_receiver.close()
+                logger.info("Audio receiver closed")
+            except Exception as e:
+                logger.error(f"Audio cleanup error: {e}")
+        
         self.server_manager.close_servers()
         pygame.quit()
         sys.exit()
+    
+    def get_audio_stats(self) -> Optional[dict]:
+        """Get audio streaming statistics."""
+        if self.audio_receiver:
+            return self.audio_receiver.get_stats()
+        return None
+    
+    def get_classification_history(self, limit: int = 10) -> list:
+        """Get recent classification history."""
+        if self.audio_classifier:
+            return self.audio_classifier.get_history(limit)
+        return []
 
 
 # ============================================================================
@@ -819,6 +945,14 @@ if __name__ == "__main__":
     parser.add_argument("--robot", action='store_true', help="Whether to run the robot or sim")
     parser.add_argument("--broker", default="localhost", help="MQTT broker host/IP for robot mode")
     parser.add_argument("--broker_port", type=int, default=1883, help="MQTT broker TCP port for robot mode")
+    parser.add_argument("--audio", action='store_true', default=True,
+                        help="Enable audio streaming (default: True)")
+    parser.add_argument("--no-audio", action='store_false', dest='audio',
+                        help="Disable audio streaming")
+    parser.add_argument("--audio_port", type=int, default=5005,
+                        help="UDP port for audio (default: 5005)")
+    parser.add_argument("--audio_test_mode", action='store_true',
+                        help="Enable audio test mode (raw PCM, no Opus decoding)")
     args = parser.parse_args()
     gui_type = "Robot" if args.robot else "Sim"
     print(f"Wildlife Explorer for {gui_type}")
@@ -839,7 +973,16 @@ if __name__ == "__main__":
         logger.info(f"GUI Command: {command}")
     
     try:
-        gui = ExplorerGUI(image_path, command_callback, args.robot, mqtt_broker_host_ip=args.broker, mqtt_port=args.broker_port)
+        gui = ExplorerGUI(
+            image_path, 
+            command_callback, 
+            args.robot, 
+            mqtt_broker_host_ip=args.broker, 
+            mqtt_port=args.broker_port,
+            audio_enabled=args.audio,
+            audio_port=args.audio_port,
+            audio_test_mode=args.audio_test_mode
+        )
         gui.run()
     except KeyboardInterrupt:
         logger.info("Application interrupted by user")
