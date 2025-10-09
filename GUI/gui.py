@@ -6,7 +6,7 @@ import numpy as np
 import os
 import json
 from typing import Callable, Optional, Mapping
-from gui_config import ConnectionStatus, ArmState, Colour, GuiConfig
+from gui_config import ConnectionStatus, ArmState, Colour, GuiConfig, VisionInferenceConfig, AudioInferenceConfig
 
 # Get the parent directory path
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -14,7 +14,7 @@ sys.path.append(parent_dir)
 
 # Now you can import modules from the parent directory
 from tiality_server import TialityServerManager
-from model.detector import Detector
+from Inference import InferenceManager
 
 # Configure logging
 logging.basicConfig(
@@ -46,17 +46,17 @@ def _decode_video_frame_opencv(frame_bytes: bytes) -> pygame.Surface:
         img_bgr = cv2.resize(img_bgr, (510, 230), interpolation=cv2.INTER_AREA)
 
         # 3. Convert the color format from BGR (OpenCV's default) to RGB (Pygame's default).
-        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        # img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         
         # 4. Correct the orientation. OpenCV arrays are (height, width), but
         #    pygame.surfarray.make_surface expects (width, height). We swap the axes.
-        img_rgb = img_rgb.swapaxes(0, 1)
+        # img_rgb = img_rgb.swapaxes(0, 1)
 
         # 5. Create a Pygame surface directly from the NumPy array.
         #    This is another very fast, low-level operation.
-        frame_surface = pygame.surfarray.make_surface(img_rgb)
+        # frame_surface = pygame.surfarray.make_surface(img_rgb)
         
-        return frame_surface
+        return img_bgr
         
     except Exception as e:
         # If any part of the decoding fails (e.g., due to a corrupted frame),
@@ -100,6 +100,16 @@ class ExplorerGUI:
         self._init_fonts()
         self._init_camera_layout()
         
+        # Setup Server and shared frame queue
+        self.server_manager = TialityServerManager(
+            grpc_port = 50051, 
+            mqtt_port = mqtt_port, 
+            mqtt_broker_host_ip = mqtt_broker_host_ip,
+            decode_video_func = _decode_video_frame_opencv,
+            num_decode_video_workers = 1 # Don't change this for now
+            )
+        self.server_manager.start_servers()
+        
         # Initialise application state
         self._init_state()
         
@@ -118,15 +128,6 @@ class ExplorerGUI:
             self.joystick = None
             logger.warning(f"Joystick init failed: {e}")
         
-        # Setup Server and shared frame queue
-        self.server_manager = TialityServerManager(
-            grpc_port = 50051, 
-            mqtt_port = mqtt_port, 
-            mqtt_broker_host_ip = mqtt_broker_host_ip,
-            decode_video_func = _decode_video_frame_opencv,
-            num_decode_video_workers = 1 # Don't change this for now
-            )
-        self.server_manager.start_servers()
 
         # Setup timing
         self.clock = pygame.time.Clock()
@@ -216,24 +217,17 @@ class ExplorerGUI:
         
         # Model inference states
         self.inference_enabled = False
-        self.detector = None
-        self._init_detector()
+        self.inference_manager = None
+        self._init_inference_manager()
 
-    def _init_detector(self) -> None:
-        """Initialize the YOLO detector for model inference."""
-        try:
-            # Get model path relative to the GUI directory
-            model_path = os.path.join(parent_dir, 'model', 'Teds_Model.pt')
-            
-            if os.path.exists(model_path):
-                self.detector = Detector(model_path)
-                logger.info(f"Detector initialized successfully with model: {model_path}")
-            else:
-                logger.warning(f"Model file not found at {model_path}. Inference will be disabled.")
-                self.detector = None
-        except Exception as e:
-            logger.error(f"Failed to initialize detector: {e}")
-            self.detector = None
+    def _init_inference_manager(self) -> None:
+        """Initialize the vision and audio inference manager for model inference."""
+        
+        self.inference_manager = InferenceManager(
+            vision_inference_config = VisionInferenceConfig(),
+            audio_inference_config = AudioInferenceConfig(),
+            server_manager = self.server_manager
+        )
 
     def _pygame_surface_to_opencv(self, surface: pygame.Surface) -> Optional[np.ndarray]:
         """Convert a pygame surface to OpenCV format for model inference."""
@@ -345,33 +339,9 @@ class ExplorerGUI:
         Collect frames from server manager to display, currently only works for first display.
         Optionally processes frames through model inference if enabled.
         """
-        #TODO: Add multiple camera functionality
-        raw_frame = self.server_manager.get_video_frame()
+        self.camera_surfaces[0] = self.inference_manager.get_vision_inference_frame()
         
-        if raw_frame is None:
-            self.camera_surfaces[0] = None
-            return
-            
-        # Process frame through detector if inference is enabled
-        if self.inference_enabled and self.detector is not None:
-            try:
-                # Convert pygame surface back to opencv format for inference
-                opencv_frame = self._pygame_surface_to_opencv(raw_frame)
-                if opencv_frame is not None:
-                    # Run inference and get frame with bounding boxes
-                    bboxes, processed_frame = self.detector.detect_single_image(opencv_frame)
-                    # Convert back to pygame surface for display
-                    self.camera_surfaces[0] = self._opencv_to_pygame_surface(processed_frame)
-                else:
-                    # Fallback to raw frame if conversion fails
-                    self.camera_surfaces[0] = raw_frame
-            except Exception as e:
-                logger.error(f"Error during model inference: {e}")
-                # Fallback to raw frame on error
-                self.camera_surfaces[0] = raw_frame
-        else:
-            # Use raw frame when inference is disabled
-            self.camera_surfaces[0] = raw_frame
+        
 
     def _draw_cameras(self) -> None:
         """Draw camera feeds and their status indicators."""
@@ -447,10 +417,10 @@ class ExplorerGUI:
     def _draw_inference_status(self, y_position: int) -> None:
         """Draw model inference status indicator."""
         # Determine status color and text
-        if self.detector is None:
+        if self.inference_manager is None:
             inference_colour = self.colours.RED
             inference_text = "Inference: NOT AVAILABLE"
-        elif self.inference_enabled:
+        elif self.inference_manager.vision_inference_on.is_set():
             inference_colour = self.colours.GREEN
             inference_text = "Inference: ON"
         else:
@@ -672,7 +642,7 @@ class ExplorerGUI:
         elif key == pygame.K_h:
             self.show_help()
         elif key == pygame.K_p:
-            self._toggle_model_inference()
+            self._toggle_vision_inference()
         elif key in (pygame.K_1, pygame.K_2):
             self._handle_camera_toggle(key)
         elif key in (pygame.K_x, pygame.K_c):
@@ -710,11 +680,9 @@ class ExplorerGUI:
         """Handle gimbal key releases (currently no action needed)"""
         pass
 
-    def _toggle_model_inference(self) -> None:
+    def _toggle_vision_inference(self) -> None:
         """Toggle model inference on/off when 'p' key is pressed."""
-        if self.detector is None:
-            logger.warning("Cannot toggle inference: detector not initialized")
-            return
+        self.inference_manager.toggle_vision_inference()
             
         self.inference_enabled = not self.inference_enabled
         status = "ENABLED" if self.inference_enabled else "DISABLED"

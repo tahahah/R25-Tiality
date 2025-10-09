@@ -19,6 +19,18 @@ class ArmState(Enum):
     EXTENDED = "EXTENDED"
     RETRACTED = "RETRACTED"
 
+@dataclass
+class VisionInferenceConfig:
+    """Vision inference state."""
+    VISION_INFERENCE_AVAILABLE: bool = True
+    VISION_MODEL_NAME: str = "Teds_Model.pt"
+
+@dataclass
+class AudioInferenceConfig:
+    """Audio inference state."""
+    AUDIO_INFERENCE_AVAILABLE: bool = False
+    AUDIO_MODEL_NAME: str = ""
+
 
 @dataclass
 class Colour:
