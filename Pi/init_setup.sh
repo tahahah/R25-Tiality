@@ -23,7 +23,7 @@ sudo apt install -y python3-picamera2 python3-opencv python3-numpy \
     libogg0 libvorbis0a libvorbisfile3 libvorbisenc2 \
     libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
     libavformat-dev libavcodec-dev libavdevice-dev libavutil-dev libswscale-dev libswresample-dev \
-    libsrtp2-dev libssl-dev \
+    libsrtp2-dev libssl-dev pigpio \
      --no-install-recommends
 
 echo "--- Installing uv and creating virtual environment ---"
@@ -78,9 +78,21 @@ echo "--- Installing ALSA_Capture_Stream dependencies ---"
 
 
 echo "--- Starting pigpio daemon ---"
-sudo systemctl enable pigpiod
-sudo systemctl start pigpiod
-echo "pigpio daemon started and enabled for auto-start"
+if systemctl list-unit-files | grep -q '^pigpiod.service'; then
+    sudo systemctl enable pigpiod
+    sudo systemctl start pigpiod
+elif systemctl list-unit-files | grep -q '^pigpio.service'; then
+    sudo systemctl enable pigpio
+    sudo systemctl start pigpio
+else
+    echo "pigpio systemd service not found; starting daemon directly..."
+    if command -v pigpiod >/dev/null 2>&1; then
+        sudo pigpiod || true
+    else
+        echo "WARNING: pigpiod binary not found. Ensure 'pigpio' is installed."
+    fi
+fi
+echo "pigpio daemon started (and enabled on boot if service available)"
 
 echo "--- Verifying picamera2 availability ---"
 if python3 -c "from picamera2 import Picamera2" 2>/dev/null; then
