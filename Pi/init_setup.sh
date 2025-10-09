@@ -19,6 +19,7 @@ sudo apt install -y python3-picamera2 python3-opencv python3-numpy \
     libportaudio2 portaudio19-dev \
     libopus0 libopusfile0 libopusenc0 \
     libogg0 libvorbis0a libvorbisfile3 libvorbisenc2 \
+    libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
      --no-install-recommends
 
 echo "--- Installing uv and creating virtual environment ---"
