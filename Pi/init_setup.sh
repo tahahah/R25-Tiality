@@ -56,13 +56,21 @@ echo "Creating virtual environment with $PYTHON_EXE..."
 uv venv "$VENV_DIR" --python "$PYTHON_EXE" --system-site-packages
 . "$VENV_DIR/bin/activate"
 
-echo "--- Installing Python packages using uv ---"
+echo "--- Installing Python packages using uv (PiWheels first, wheels-only) ---"
 # Install requirements for the main Pi components
-uv pip install -r "$SCRIPT_DIR/requirements.txt"
+uv pip install \
+  --extra-index-url https://www.piwheels.org/simple \
+  --index-url https://pypi.org/simple \
+  --only-binary :all: \
+  -r "$SCRIPT_DIR/requirements.txt"
 
 # Install requirements for the ALSA Capture Stream utility
 echo "--- Installing ALSA_Capture_Stream dependencies ---"
-uv pip install -r "$SCRIPT_DIR/../ALSA_Capture_Stream/requirements.txt"
+uv pip install \
+  --extra-index-url https://www.piwheels.org/simple \
+  --index-url https://pypi.org/simple \
+  --only-binary :all: \
+  -r "$SCRIPT_DIR/../ALSA_Capture_Stream/requirements.txt"
 
 
 echo "--- Starting pigpio daemon ---"
