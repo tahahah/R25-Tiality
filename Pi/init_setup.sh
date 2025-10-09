@@ -21,26 +21,36 @@ sudo apt install -y python3-picamera2 python3-opencv python3-numpy \
     libogg0 libvorbis0a libvorbisfile3 libvorbisenc2 \
      --no-install-recommends
 
-echo "--- Creating virtual environment with system site packages ---"
+echo "--- Installing uv and creating virtual environment ---"
+# Check for uv, install if not found
+if ! command -v uv &> /dev/null; then
+    echo "uv not found. Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    # Add uv to PATH for the current session
+    export PATH="$HOME/.local/bin:$PATH"
+    echo "✓ uv installed successfully"
+else
+    echo "✓ uv already installed"
+fi
+
 if [ -d "$VENV_DIR" ]; then
     echo "Removing existing virtual environment at $VENV_DIR..."
     rm -rf "$VENV_DIR"
 fi
-python3 -m venv "$VENV_DIR" --system-site-packages
+
+# Use the system's python3 to create the venv, preserving system site packages
+PYTHON_EXE=$(command -v python3)
+echo "Creating virtual environment with $PYTHON_EXE..."
+uv venv "$VENV_DIR" --python "$PYTHON_EXE" --system-site-packages
 . "$VENV_DIR/bin/activate"
 
-echo "--- Installing Python packages into the venv ---"
-# Intentionally omit numpy/opencv to avoid conflicts; rely on system packages
-pip install --upgrade pip
-pip install -r "$SCRIPT_DIR/requirements.txt"
+echo "--- Installing Python packages using uv ---"
+# Install requirements for the main Pi components
+uv pip install -r "$SCRIPT_DIR/requirements.txt"
 
-cd ..
-pwd
-cd ALSA_Capture_Stream
+# Install requirements for the ALSA Capture Stream utility
 echo "--- Installing ALSA_Capture_Stream dependencies ---"
-pwd
-pip install -r "requirements.txt"
-cd "$SCRIPT_DIR"
+uv pip install -r "$SCRIPT_DIR/../ALSA_Capture_Stream/requirements.txt"
 
 
 echo "--- Starting pigpio daemon ---"
