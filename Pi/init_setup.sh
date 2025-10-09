@@ -95,7 +95,7 @@ echo "--- Installing ALSA_Capture_Stream dependencies ---"
 # echo "pigpio daemon started (and enabled on boot if service available)"
 
 echo "--- Verifying picamera2 availability ---"
-if python3 -c "from picamera2 import Picamera2" 2>/dev/null; then
+if uv run python -c "from picamera2 import Picamera2" 2>/dev/null; then
     echo "picamera2 accessible in virtual environment"
 else
     echo "WARNING: picamera2 not accessible in virtual environment"
