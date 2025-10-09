@@ -66,11 +66,15 @@ uv pip install \
 
 # Install requirements for the ALSA Capture Stream utility
 echo "--- Installing ALSA_Capture_Stream dependencies ---"
-uv pip install \
-  --extra-index-url https://www.piwheels.org/simple \
-  --index-url https://pypi.org/simple \
-  --only-binary :all: \
-  -r "$SCRIPT_DIR/../ALSA_Capture_Stream/requirements.txt"
+# Run from the ALSA_Capture_Stream directory so '-e PyOgg/' resolves correctly
+(
+  cd "$SCRIPT_DIR/../ALSA_Capture_Stream" && \
+  uv pip install \
+    --extra-index-url https://www.piwheels.org/simple \
+    --index-url https://pypi.org/simple \
+    --only-binary :all: \
+    -r "requirements.txt"
+)
 
 
 echo "--- Starting pigpio daemon ---"
