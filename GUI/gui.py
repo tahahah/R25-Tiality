@@ -261,6 +261,10 @@ class ExplorerGUI:
         self.inference_enabled = False
         self.inference_manager = None
         self._init_inference_manager()
+        
+        # Audio detection state
+        self.latest_audio_result = None
+        self.audio_classification_processing = False
 
     def _init_inference_manager(self) -> None:
         """Initialize the vision and audio inference manager for model inference."""
@@ -479,12 +483,51 @@ class ExplorerGUI:
         
         inference_surface = self.fonts['medium'].render(inference_text, True, inference_colour)
         self.screen.blit(inference_surface, (30, y_position))
+    
+    def _draw_audio_detection(self) -> None:
+        """Draw audio detection results in the audio panel."""
+        # Show processing state or results
+        if not self.audio_classification_processing and self.latest_audio_result is None:
+            return
+        
+        # Audio panel is on the right side - coordinates based on the background image
+        # Animal name box center (below "Animal Heard" header)
+        animal_x = 1009
+        animal_y = 365
+        
+        # Confidence box center (below "Confidence" header)
+        confidence_x = 1161
+        confidence_y = 365
+        
+        # Check if we're currently processing
+        if self.audio_classification_processing:
+            # Show animated processing text
+            # Cycle through dots every 300ms: . .. ... ....
+            dots_cycle = int((pygame.time.get_ticks() // 300) % 4) + 1
+            animal_name = "." * dots_cycle
+            confidence_text = "0.00%"
+        else:
+            # Show actual results
+            animal_name = self.latest_audio_result['top_prediction']
+            confidence_value = self.latest_audio_result['top_confidence']
+            confidence_text = f"{confidence_value:.1%}"
+        
+        # Draw animal name (centered on the x,y point)
+        animal_surface = self.fonts['medium'].render(animal_name, True, self.colours.BLACK)
+        animal_rect = animal_surface.get_rect(center=(animal_x, animal_y))
+        self.screen.blit(animal_surface, animal_rect)
+        
+        # Draw confidence percentage (centered on the x,y point)
+        confidence_surface = self.fonts['medium'].render(confidence_text, True, self.colours.BLACK)
+        confidence_rect = confidence_surface.get_rect(center=(confidence_x, confidence_y))
+        self.screen.blit(confidence_surface, confidence_rect)
 
     def draw_overlays(self) -> None:
         """Draw all interactive overlays on top of the background image."""
         self._draw_cameras()
         self._draw_movement_status()
         self._draw_status_info()
+        self._draw_audio_detection()
 
 
     # ============================================================================
@@ -745,6 +788,7 @@ class ExplorerGUI:
         
         duration = self.audio_config.AUDIO_CLASSIFICATION_DURATION
         logger.info(f"Requesting audio classification of last {duration:.0f} seconds...")
+        self.audio_classification_processing = True
         self.inference_manager.request_audio_classification(duration=duration)
 
     def _toggle_vision_inference(self) -> None:
@@ -845,6 +889,9 @@ class ExplorerGUI:
         if self.inference_manager.audio_inference_available:
             result = self.inference_manager.get_audio_result()
             if result:
+                # Store result for UI display and clear processing flag
+                self.latest_audio_result = result
+                self.audio_classification_processing = False
                 logger.info("=" * 50)
                 logger.info("AUDIO CLASSIFICATION RESULT")
                 logger.info("=" * 50)
