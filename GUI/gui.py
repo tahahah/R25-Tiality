@@ -24,13 +24,7 @@ except ImportError:
     AUDIO_AVAILABLE = False
     logging.warning("Audio not available - install: pip install sounddevice numpy")
 
-# Audio classifier
-try:
-    from inference_manager import AudioClassifier
-    CLASSIFIER_AVAILABLE = True
-except ImportError:
-    CLASSIFIER_AVAILABLE = False
-    logging.warning("Audio classifier not available")
+# Audio classifier is now handled by InferenceManager
 
 # Configure logging
 logging.basicConfig(
@@ -136,25 +130,7 @@ class ExplorerGUI:
             )
         self.server_manager.start_servers()
         
-        # Initialise application state
-        self._init_state()
-        
-        # Initialise joystick (if present)
-        try:
-            pygame.joystick.init()
-            self.joystick = None
-            if pygame.joystick.get_count() > 0:
-                self.joystick = pygame.joystick.Joystick(0)
-                if not self.joystick.get_init():
-                    self.joystick.init()
-                logger.info(f"Joystick initialised: {self.joystick.get_name()} | axes={self.joystick.get_numaxes()}")
-            else:
-                logger.info("No joystick detected")
-        except Exception as e:
-            self.joystick = None
-            logger.warning(f"Joystick init failed: {e}")
-        
-        # Initialize audio receiver
+        # Initialize audio receiver BEFORE inference manager
         self.audio_receiver = None
         if self.audio_enabled and AUDIO_AVAILABLE:
             try:
@@ -173,15 +149,24 @@ class ExplorerGUI:
         elif self.audio_enabled:
             logger.warning("Audio dependencies missing")
         
-        # Initialize audio classifier
-        self.audio_classifier = None
-        if CLASSIFIER_AVAILABLE:
-            try:
-                self.audio_classifier = AudioClassifier()
-                logger.info("Audio classifier initialized")
-            except Exception as e:
-                logger.error(f"Audio classifier failed: {e}")
-
+        # Initialise application state (after audio_receiver is set)
+        self._init_state()
+        
+        # Initialise joystick (if present)
+        try:
+            pygame.joystick.init()
+            self.joystick = None
+            if pygame.joystick.get_count() > 0:
+                self.joystick = pygame.joystick.Joystick(0)
+                if not self.joystick.get_init():
+                    self.joystick.init()
+                logger.info(f"Joystick initialised: {self.joystick.get_name()} | axes={self.joystick.get_numaxes()}")
+            else:
+                logger.info("No joystick detected")
+        except Exception as e:
+            self.joystick = None
+            logger.warning(f"Joystick init failed: {e}")
+        
         # Setup timing
         self.clock = pygame.time.Clock()
         self.running = True
@@ -281,6 +266,11 @@ class ExplorerGUI:
             audio_inference_config = AudioInferenceConfig(),
             server_manager = self.server_manager
         )
+        
+        # Start audio worker if audio receiver is available
+        if self.audio_receiver and self.inference_manager.audio_inference_available:
+            self.inference_manager.start_audio_worker(self.audio_receiver)
+            logger.info("Audio worker started with inference manager")
 
     def _pygame_surface_to_opencv(self, surface: pygame.Surface) -> Optional[np.ndarray]:
         """Convert a pygame surface to OpenCV format for model inference."""
@@ -737,54 +727,17 @@ class ExplorerGUI:
         pass
     
     def _handle_classify_audio(self) -> None:
-        """Handle audio classification request."""
+        """Request one-shot audio classification."""
+        if not self.inference_manager.audio_inference_available:
+            logger.warning("Audio inference not available")
+            return
+        
         if not self.audio_receiver:
-            logger.warning("Audio receiver not available for classification")
+            logger.warning("Audio receiver not available")
             return
         
-        if not self.audio_classifier:
-            logger.warning("Audio classifier not available")
-            return
-        
-        try:
-            logger.info("Capturing last 5 seconds of audio for classification...")
-            
-            # Get audio buffer stats
-            stats = self.audio_receiver.get_stats()
-            buffer_duration = stats.get('buffer_duration', 0)
-            logger.info(f"Audio buffer contains {buffer_duration:.1f} seconds")
-            
-            # Get audio data
-            audio_data = self.audio_receiver.get_audio_buffer(duration=5.0)
-            
-            if len(audio_data) == 0:
-                logger.warning("No audio available in buffer")
-                return
-            
-            # Classify audio
-            logger.info(f"Classifying {len(audio_data)} audio samples...")
-            result = self.audio_classifier.classify_audio(
-                audio_data,
-                sample_rate=self.audio_receiver.sample_rate
-            )
-            
-            # Log results
-            logger.info("=" * 50)
-            logger.info("AUDIO CLASSIFICATION RESULT")
-            logger.info("=" * 50)
-            logger.info(f"Top Prediction: {result['top_prediction']}")
-            logger.info(f"Confidence: {result['top_confidence']:.1%}")
-            logger.info(f"Duration: {result['duration']:.2f}s")
-            logger.info(f"All predictions:")
-            for pred in result['predictions']:
-                logger.info(f"  - {pred['animal']}: {pred['confidence']:.1%}")
-            logger.info("=" * 50)
-            
-            # TODO: Display results in GUI overlay
-            # For now, results are logged to console
-            
-        except Exception as e:
-            logger.error(f"Error during audio classification: {e}", exc_info=True)
+        logger.info("Requesting audio classification of last 5 seconds...")
+        self.inference_manager.request_audio_classification(duration=5.0)
 
     def _toggle_vision_inference(self) -> None:
         """Toggle model inference on/off when 'p' key is pressed."""
@@ -879,6 +832,21 @@ class ExplorerGUI:
             self._publish_robot_motion()
         else:
             self.handle_movement()
+        
+        # Check for audio classification results (non-blocking)
+        if self.inference_manager.audio_inference_available:
+            result = self.inference_manager.get_audio_result()
+            if result:
+                logger.info("=" * 50)
+                logger.info("AUDIO CLASSIFICATION RESULT")
+                logger.info("=" * 50)
+                logger.info(f"Top Prediction: {result['top_prediction']}")
+                logger.info(f"Confidence: {result['top_confidence']:.1%}")
+                logger.info(f"Duration: {result['duration']:.2f}s")
+                logger.info(f"All predictions:")
+                for pred in result['predictions']:
+                    logger.info(f"  - {pred['animal']}: {pred['confidence']:.1%}")
+                logger.info("=" * 50)
 
     def render(self) -> None:
         """Render the current frame."""
@@ -910,6 +878,13 @@ class ExplorerGUI:
         """Clean up resources before exit."""
         logger.info("Cleaning up...")
         
+        if self.inference_manager:
+            try:
+                self.inference_manager.shutdown_inference_manager()
+                logger.info("Inference manager shut down")
+            except Exception as e:
+                logger.error(f"Inference manager cleanup error: {e}")
+        
         if self.audio_receiver:
             try:
                 self.audio_receiver.close()
@@ -929,8 +904,8 @@ class ExplorerGUI:
     
     def get_classification_history(self, limit: int = 10) -> list:
         """Get recent classification history."""
-        if self.audio_classifier:
-            return self.audio_classifier.get_history(limit)
+        if self.inference_manager and self.inference_manager.audio_classifier:
+            return self.inference_manager.audio_classifier.get_history(limit)
         return []
 
 

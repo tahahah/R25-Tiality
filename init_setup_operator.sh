@@ -330,7 +330,7 @@ MQTT_EOF
     
     # Start mosquitto in background
     echo "Starting mosquitto broker on port $BROKER_PORT..."
-    mosquitto -c /tmp/mqtt-test.conf -v &
+    mosquitto -c /tmp/mqtt-test.conf &
     MOSQUITTO_PID=$!
     
     # Wait a moment for broker to start
