@@ -107,7 +107,11 @@ class AudioClassifier:
         self, 
         checkpoint_path: str = "Inference/audio_weights.ckpt",
         label_map_path: str = "Inference/audio_label_map.json",
-        lazy_load: bool = True
+        lazy_load: bool = True,
+        ignore_noise: bool = True,
+        noise_label: str = "Noise",
+        noise_dominance_threshold: float = 0.95,
+        renormalize_after_removal: bool = True
     ):
         """
         Initialize audio classifier.
@@ -116,6 +120,10 @@ class AudioClassifier:
             checkpoint_path: Path to model checkpoint
             label_map_path: Path to label mapping JSON
             lazy_load: If True, delay model loading until first inference
+            ignore_noise: If True, ignore noise class when finding top animal
+            noise_label: Exact label name for noise class (case-insensitive)
+            noise_dominance_threshold: Only report noise if confidence >= this
+            renormalize_after_removal: Renormalize probabilities after removing noise
         """
         self.checkpoint_path = checkpoint_path
         self.label_map_path = label_map_path
@@ -131,17 +139,24 @@ class AudioClassifier:
         self.hop_length = 256
         self.inference_batch_size = 64
         
+        # Noise handling parameters (matches classify_audio.py)
+        self.ignore_noise = ignore_noise
+        self.noise_label = noise_label
+        self.noise_dominance_threshold = noise_dominance_threshold
+        self.renormalize_after_removal = renormalize_after_removal
+        
         # Will be set on load
         self.model = None
         self.transform = None
         self.device = None
         self.idx_to_label = None
         self.num_classes = None
+        self.noise_idx = None  # Index of noise class
         
         if not lazy_load:
             self._load_model()
         
-        logger.info(f"AudioClassifier initialized (lazy_load={lazy_load})")
+        logger.info(f"AudioClassifier initialized (lazy_load={lazy_load}, ignore_noise={ignore_noise})")
     
     def _pick_device(self):
         """Select best available device."""
@@ -174,6 +189,17 @@ class AudioClassifier:
             label_to_idx = {k: int(v) for k, v in label_to_idx.items()}
             self.idx_to_label = {v: k for k, v in label_to_idx.items()}
             self.num_classes = len(self.idx_to_label)
+            
+            # Find noise class index (case-insensitive)
+            self.noise_idx = None
+            if self.ignore_noise:
+                for idx, lbl in self.idx_to_label.items():
+                    if lbl.lower() == self.noise_label.lower():
+                        self.noise_idx = int(idx)
+                        logger.info(f"Noise class found at index {self.noise_idx}")
+                        break
+                if self.noise_idx is None:
+                    logger.warning(f"Noise class '{self.noise_label}' not found in label map")
             
             # Select device
             self.device = self._pick_device()
@@ -284,12 +310,53 @@ class AudioClassifier:
             all_probs = torch.cat(probs_list, dim=0).numpy()
             mean_probs = all_probs.mean(axis=0)
             
-            # Get top predictions
-            top_indices = np.argsort(mean_probs)[::-1][:3]
+            # Apply noise handling logic (matches classify_audio.py)
+            final_pred_idx = None
+            final_pred_label = None
+            final_pred_prob = None
+            noise_prob = None
+            processed_probs = mean_probs.copy()
+            
+            if self.ignore_noise and self.noise_idx is not None:
+                noise_prob = float(mean_probs[self.noise_idx])
+                nonnoise_probs = mean_probs.copy()
+                nonnoise_probs[self.noise_idx] = 0.0
+                
+                # Check if all non-noise probabilities are zero
+                if nonnoise_probs.sum() == 0.0:
+                    # All probability is in noise class
+                    final_pred_idx = int(self.noise_idx)
+                    final_pred_label = self.idx_to_label[final_pred_idx]
+                    final_pred_prob = float(noise_prob)
+                    processed_probs = mean_probs
+                else:
+                    # Optionally renormalize after removing noise
+                    if self.renormalize_after_removal:
+                        nonnoise_probs = nonnoise_probs / nonnoise_probs.sum()
+                    
+                    final_pred_idx = int(nonnoise_probs.argmax())
+                    final_pred_label = self.idx_to_label[final_pred_idx]
+                    final_pred_prob = float(nonnoise_probs[final_pred_idx])
+                    processed_probs = nonnoise_probs
+                    
+                    # Check noise dominance: if noise is overwhelming, report it instead
+                    if noise_prob >= self.noise_dominance_threshold:
+                        final_pred_idx = int(self.noise_idx)
+                        final_pred_label = self.idx_to_label[final_pred_idx]
+                        final_pred_prob = float(noise_prob)
+                        processed_probs = mean_probs
+            else:
+                # No noise handling - use raw predictions
+                final_pred_idx = int(mean_probs.argmax())
+                final_pred_label = self.idx_to_label[final_pred_idx]
+                final_pred_prob = float(mean_probs[final_pred_idx])
+            
+            # Get top 3 predictions from processed probabilities
+            top_indices = np.argsort(processed_probs)[::-1][:3]
             predictions = [
                 {
                     'animal': self.idx_to_label[int(idx)],
-                    'confidence': float(mean_probs[idx]),
+                    'confidence': float(processed_probs[idx]),
                     'type': 'Audio'
                 }
                 for idx in top_indices
@@ -302,9 +369,14 @@ class AudioClassifier:
                 'sample_rate': sample_rate,
                 'num_samples': len(audio_data),
                 'predictions': predictions,
-                'top_prediction': predictions[0]['animal'],
-                'top_confidence': predictions[0]['confidence']
+                'top_prediction': final_pred_label if final_pred_label else predictions[0]['animal'],
+                'top_confidence': final_pred_prob if final_pred_prob else predictions[0]['confidence']
             }
+            
+            # Add noise information if available
+            if noise_prob is not None:
+                result['noise_probability'] = noise_prob
+                result['noise_handling_enabled'] = self.ignore_noise
             
             # Store in history
             self.classification_history.append(result)
