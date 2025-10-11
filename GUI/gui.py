@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import os
 import json
+import datetime
 from typing import Callable, Optional, Mapping
 from gui_config import ConnectionStatus, ArmState, Colour, GuiConfig, VisionInferenceConfig, AudioInferenceConfig
 
@@ -265,6 +266,8 @@ class ExplorerGUI:
         # Audio detection state
         self.latest_audio_result = None
         self.audio_classification_processing = False
+        self.detection_history = []  # List of detection records
+        self.detection_table_scroll_offset = 0  # Scroll offset for detection history table
 
     def _init_inference_manager(self) -> None:
         """Initialize the vision and audio inference manager for model inference."""
@@ -522,12 +525,56 @@ class ExplorerGUI:
         confidence_rect = confidence_surface.get_rect(center=(confidence_x, confidence_y))
         self.screen.blit(confidence_surface, confidence_rect)
 
+    def _draw_detection_history_table(self) -> None:
+        """Draw detection history table in bottom right corner."""
+        if not self.detection_history:
+            return
+        
+        # Table position and dimensions (bottom right corner based on the image)
+        table_x = 787
+        table_y = 535
+        row_height = 25
+        col_widths = [80, 180, 80, 100]  # Timestamp, Animal, Type, Confidence
+        max_visible_rows = 5
+        
+        # Calculate which records to display based on scroll offset
+        total_records = len(self.detection_history)
+        start_idx = max(0, total_records - max_visible_rows - self.detection_table_scroll_offset)
+        end_idx = min(total_records, start_idx + max_visible_rows)
+        visible_records = self.detection_history[start_idx:end_idx]
+        
+        # Draw table rows
+        for i, record in enumerate(visible_records):
+            y_pos = table_y + i * row_height
+            
+            # Timestamp
+            timestamp_surface = self.fonts['small'].render(record['timestamp'], True, self.colours.BLACK)
+            timestamp_rect = timestamp_surface.get_rect(center=(table_x + col_widths[0]//2, y_pos))
+            self.screen.blit(timestamp_surface, timestamp_rect)
+            
+            # Animal name
+            animal_surface = self.fonts['small'].render(record['animal'], True, self.colours.BLACK)
+            animal_rect = animal_surface.get_rect(center=(table_x + col_widths[0] + col_widths[1]//2, y_pos))
+            self.screen.blit(animal_surface, animal_rect)
+            
+            # Type
+            type_surface = self.fonts['small'].render(record['type'], True, self.colours.BLACK)
+            type_rect = type_surface.get_rect(center=(table_x + col_widths[0] + col_widths[1] + col_widths[2]//2, y_pos))
+            self.screen.blit(type_surface, type_rect)
+            
+            # Confidence
+            confidence_text = f"{record['confidence']:.1%}"
+            confidence_surface = self.fonts['small'].render(confidence_text, True, self.colours.BLACK)
+            confidence_rect = confidence_surface.get_rect(center=(table_x + col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3]//2, y_pos))
+            self.screen.blit(confidence_surface, confidence_rect)
+
     def draw_overlays(self) -> None:
         """Draw all interactive overlays on top of the background image."""
         self._draw_cameras()
         self._draw_movement_status()
         self._draw_status_info()
         self._draw_audio_detection()
+        self._draw_detection_history_table()
 
 
     # ============================================================================
@@ -557,6 +604,8 @@ class ExplorerGUI:
             "  WASD - Move car",
             "  Q/E - Rotate Car",
             "  Arrow Keys - Control gimbal X/Y axes",
+            "  Shift+Up/Down - Scroll detection history table",
+            "  Mouse Wheel - Scroll detection history table",
             "  X/C - Control crane servo up/down",
             "  Space - Emergency stop",
             "  P - Toggle model inference ON/OFF",
@@ -744,7 +793,12 @@ class ExplorerGUI:
         elif key in (pygame.K_x, pygame.K_c):
             self._handle_gimbal_crane_control(key)
         elif key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT):
-            self._handle_gimbal_arrow_keys(key)
+            # Check if shift is held for table scrolling
+            mods = pygame.key.get_mods()
+            if mods & pygame.KMOD_SHIFT:
+                self._handle_table_scroll(key)
+            else:
+                self._handle_gimbal_arrow_keys(key)
 
     def _handle_camera_toggle(self, key: int) -> None:
         camera_index = 0 if key == pygame.K_1 else 1
@@ -771,6 +825,37 @@ class ExplorerGUI:
             self.send_gimbal_command("x_left")
         elif key == pygame.K_RIGHT:
             self.send_gimbal_command("x_right")
+    
+    def _handle_table_scroll(self, key: int) -> None:
+        """Handle scrolling through detection history table with Shift+Arrow keys."""
+        if not self.detection_history:
+            return
+        
+        max_visible_rows = 5
+        max_scroll = max(0, len(self.detection_history) - max_visible_rows)
+        
+        if key == pygame.K_UP:
+            # Scroll up (show older entries)
+            self.detection_table_scroll_offset = min(self.detection_table_scroll_offset + 1, max_scroll)
+        elif key == pygame.K_DOWN:
+            # Scroll down (show newer entries)
+            self.detection_table_scroll_offset = max(self.detection_table_scroll_offset - 1, 0)
+    
+    def _handle_mouse_wheel(self, event: pygame.event.Event) -> None:
+        """Handle mouse wheel scrolling for detection history table."""
+        if not self.detection_history:
+            return
+        
+        max_visible_rows = 5
+        max_scroll = max(0, len(self.detection_history) - max_visible_rows)
+        
+        # event.y is positive for scroll up, negative for scroll down
+        if event.y > 0:
+            # Scroll up (show older entries)
+            self.detection_table_scroll_offset = min(self.detection_table_scroll_offset + 1, max_scroll)
+        elif event.y < 0:
+            # Scroll down (show newer entries)
+            self.detection_table_scroll_offset = max(self.detection_table_scroll_offset - 1, 0)
     
     def _handle_gimbal_key_release(self, event: pygame.event.Event) -> None:
         """Handle gimbal key releases (currently no action needed)"""
@@ -811,6 +896,8 @@ class ExplorerGUI:
             elif event.type == pygame.KEYUP:
                 self._handle_movement_keys(event, False)
                 self._handle_gimbal_key_release(event)
+            elif event.type == pygame.MOUSEWHEEL:
+                self._handle_mouse_wheel(event)
             elif event.type == pygame.JOYBUTTONDOWN:
                 # Map RB/LB to crane up/down
                 if event.button == self.BUTTON_RB:
@@ -892,6 +979,22 @@ class ExplorerGUI:
                 # Store result for UI display and clear processing flag
                 self.latest_audio_result = result
                 self.audio_classification_processing = False
+                
+                # Add to detection history with timestamp
+                timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+                detection_record = {
+                    'timestamp': timestamp,
+                    'animal': result['top_prediction'],
+                    'type': 'Audio',
+                    'confidence': result['top_confidence']
+                }
+                self.detection_history.append(detection_record)
+                # Keep only last 10 detections
+                if len(self.detection_history) > 10:
+                    self.detection_history.pop(0)
+                # Reset scroll to show newest entries
+                self.detection_table_scroll_offset = 0
+                
                 logger.info("=" * 50)
                 logger.info("AUDIO CLASSIFICATION RESULT")
                 logger.info("=" * 50)
@@ -929,9 +1032,36 @@ class ExplorerGUI:
         finally:
             self.cleanup()
 
+    def _save_detection_history(self) -> None:
+        """Save detection history to a JSON file."""
+        if not self.detection_history:
+            logger.info("No detection history to save")
+            return
+        
+        try:
+            # Create detections directory if it doesn't exist
+            detections_dir = "detections"
+            os.makedirs(detections_dir, exist_ok=True)
+            
+            # Generate filename with current date and time
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{detections_dir}/detection_history_{timestamp}.json"
+            
+            # Save to JSON file
+            with open(filename, 'w') as f:
+                json.dump(self.detection_history, f, indent=2)
+            
+            logger.info(f"Detection history saved to {filename} ({len(self.detection_history)} records)")
+            print(f"\nDetection history saved to {filename}")
+        except Exception as e:
+            logger.error(f"Failed to save detection history: {e}")
+
     def cleanup(self) -> None:
         """Clean up resources before exit."""
         logger.info("Cleaning up...")
+        
+        # Save detection history before shutdown
+        self._save_detection_history()
         
         if self.inference_manager:
             try:
