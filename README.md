@@ -46,6 +46,23 @@ The gui can be run after packages have been installed from requirements.txt. Ens
 python3 GUI/gui.py --robot --broker_port=<port_number>
 ```
 
+#### Audio Classification Duration
+To change the duration of audio classification (e.g., from 5 seconds to 10 seconds), edit the `AUDIO_CLASSIFICATION_DURATION` parameter in `GUI/gui_config.py`:
+
+```python
+@dataclass
+class AudioInferenceConfig:
+    """Audio inference state."""
+    AUDIO_INFERENCE_AVAILABLE: bool = True
+    AUDIO_MODEL_NAME: str = "audio_weights.ckpt"
+    AUDIO_CLASSIFICATION_DURATION: float = 10.0  # Change this value
+```
+
+This single parameter controls:
+- Audio buffer size (how much audio history is stored)
+- Classification duration (how many seconds are analyzed when pressing 'R')
+- Help text display (automatically updates to show current duration)
+
 ### Pi
 The robot requires an initial setup of the virtual environment, ENSURE NO SUDO IS USED. All the following commands are operated from the R25-Tiality directory:
 

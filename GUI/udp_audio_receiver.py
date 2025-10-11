@@ -98,7 +98,8 @@ class UDPAudioReceiver:
         channels: int = 1,
         jitter_buffer_size: int = 10,  # Number of packets to buffer
         playback_enabled: bool = True,
-        test_mode: bool = False  # Skip Opus decoding for raw PCM testing
+        test_mode: bool = False,  # Skip Opus decoding for raw PCM testing
+        buffer_duration: float = 5.0  # Duration of audio to buffer in seconds
     ):
         """
         Initialize UDP audio receiver.
@@ -109,6 +110,8 @@ class UDPAudioReceiver:
             channels: Number of audio channels
             jitter_buffer_size: Number of packets to buffer before playing
             playback_enabled: Whether to enable audio playback
+            test_mode: Skip Opus decoding for raw PCM testing
+            buffer_duration: Duration of audio to buffer in seconds
         """
         self.listen_port = listen_port
         self.sample_rate = sample_rate
@@ -116,9 +119,10 @@ class UDPAudioReceiver:
         self.jitter_buffer_size = jitter_buffer_size
         self.playback_enabled = playback_enabled
         self.test_mode = test_mode
+        self.buffer_duration = buffer_duration
         
-        # Circular buffer for last 5 seconds of audio
-        max_samples = sample_rate * 5  # 5 seconds
+        # Circular buffer for audio history
+        max_samples = int(sample_rate * buffer_duration)
         self.audio_history = deque(maxlen=max_samples)
         self.history_lock = threading.Lock()
         

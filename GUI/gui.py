@@ -131,6 +131,9 @@ class ExplorerGUI:
         self.server_manager.start_servers()
         
         # Initialize audio receiver BEFORE inference manager
+        # Get audio config early to use buffer duration
+        audio_config = AudioInferenceConfig()
+        
         self.audio_receiver = None
         if self.audio_enabled and AUDIO_AVAILABLE:
             try:
@@ -139,10 +142,11 @@ class ExplorerGUI:
                     sample_rate=48000,
                     channels=1,
                     playback_enabled=True,
-                    test_mode=audio_test_mode
+                    test_mode=audio_test_mode,
+                    buffer_duration=audio_config.AUDIO_CLASSIFICATION_DURATION
                 )
                 self.audio_receiver.start()
-                logger.info(f"Audio streaming on port {audio_port}")
+                logger.info(f"Audio streaming on port {audio_port} (buffer: {audio_config.AUDIO_CLASSIFICATION_DURATION}s)")
             except Exception as e:
                 logger.error(f"Audio receiver failed: {e}")
                 self.audio_receiver = None
@@ -261,9 +265,12 @@ class ExplorerGUI:
     def _init_inference_manager(self) -> None:
         """Initialize the vision and audio inference manager for model inference."""
         
+        # Store audio config for later access
+        self.audio_config = AudioInferenceConfig()
+        
         self.inference_manager = InferenceManager(
             vision_inference_config = VisionInferenceConfig(),
-            audio_inference_config = AudioInferenceConfig(),
+            audio_inference_config = self.audio_config,
             server_manager = self.server_manager
         )
         
@@ -510,7 +517,7 @@ class ExplorerGUI:
             "  X/C - Control crane servo up/down",
             "  Space - Emergency stop",
             "  P - Toggle model inference ON/OFF",
-            "  R - Classify last 5 seconds of audio",
+            f"  R - Classify last {self.audio_config.AUDIO_CLASSIFICATION_DURATION:.0f} seconds of audio",
             "  TODO: 1, 2 - Toggle cameras",
             "  H - Show/hide this help",
             "  ESC - Exit",
@@ -736,8 +743,9 @@ class ExplorerGUI:
             logger.warning("Audio receiver not available")
             return
         
-        logger.info("Requesting audio classification of last 5 seconds...")
-        self.inference_manager.request_audio_classification(duration=5.0)
+        duration = self.audio_config.AUDIO_CLASSIFICATION_DURATION
+        logger.info(f"Requesting audio classification of last {duration:.0f} seconds...")
+        self.inference_manager.request_audio_classification(duration=duration)
 
     def _toggle_vision_inference(self) -> None:
         """Toggle model inference on/off when 'p' key is pressed."""
