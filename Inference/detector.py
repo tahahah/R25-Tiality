@@ -8,6 +8,12 @@ from ultralytics.utils import ops
 
 class Detector:
     def __init__(self, model_path):
+        # If model_path is just a filename (no directory), resolve it relative to this file's directory
+        if not os.path.isabs(model_path) and os.path.dirname(model_path) == '':
+            # Get the directory where this detector.py file is located
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            model_path = os.path.join(current_dir, model_path)
+        
         self.model = YOLO(model_path)
         self.class_colour = {
             'cockatoo': (0, 165, 255),

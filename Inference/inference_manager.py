@@ -8,6 +8,8 @@ import numpy as np
 import logging
 from .detector import Detector
 from .vision_worker import run_vision_worker
+from .audio_worker import run_audio_worker
+from .audio_classifier import AudioClassifier
 
 # Get the parent directory path
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -36,9 +38,11 @@ class InferenceManager:
 
         # Audio Inference Variables
         self.audio_inference_available: bool = audio_inference_config.AUDIO_INFERENCE_AVAILABLE
-        self.audio_inference_on: threading.Event = threading.Event()
-        self.audio_inference_on.clear()
         self.audio_inference_model_name: str = audio_inference_config.AUDIO_MODEL_NAME
+        self.audio_trigger_queue: queue.Queue = queue.Queue(maxsize=5)
+        self.audio_results_queue: queue.Queue = queue.Queue(maxsize=1)
+        self.audio_classifier = None
+        self.audio_receiver = None
 
         # Initialize thread references
         self.vision_thread = None
@@ -59,7 +63,13 @@ class InferenceManager:
             )
             self.vision_thread.start()
         if self.audio_inference_available:
-            pass
+            # Initialize audio classifier (lazy load)
+            try:
+                self.audio_classifier = AudioClassifier(lazy_load=True)
+                logging.info("Audio classifier initialized")
+            except Exception as e:
+                logging.error(f"Audio classifier init failed: {e}")
+                self.audio_inference_available = False
 
     def shutdown_inference_manager(self):
         self.shutdown_event.set()
@@ -100,8 +110,47 @@ class InferenceManager:
         else:
             self.vision_inference_on.set()
 
-    def toggle_audio_inference_on(self):
-       if self.audio_inference_on.is_set():
-            self.audio_inference_on.clear()
-       else:
-            self.audio_inference_on.set()
+    def request_audio_classification(self, duration: float = 5.0):
+        """Request one-shot audio classification of the last N seconds."""
+        if not self.audio_inference_available or self.audio_classifier is None:
+            logging.warning("Audio inference not available")
+            return
+        
+        try:
+            # Put duration request in trigger queue (non-blocking)
+            self.audio_trigger_queue.put_nowait(duration)
+            logging.info(f"Audio classification requested: {duration}s")
+        except queue.Full:
+            logging.warning("Audio classification request queue full, skipping")
+    
+    def start_audio_worker(self, audio_receiver):
+        """Start audio worker thread with audio receiver."""
+        if not self.audio_inference_available or self.audio_classifier is None:
+            logging.warning("Audio inference not available")
+            return
+        
+        if self.audio_thread is not None and self.audio_thread.is_alive():
+            logging.warning("Audio worker already running")
+            return
+        
+        self.audio_receiver = audio_receiver
+        self.audio_thread = threading.Thread(
+            target=run_audio_worker,
+            args=(
+                self.audio_receiver,
+                self.audio_trigger_queue,
+                self.audio_results_queue,
+                self.audio_classifier,
+                self.shutdown_event
+            ),
+            daemon=True
+        )
+        self.audio_thread.start()
+        logging.info("Audio worker started (one-shot mode)")
+    
+    def get_audio_result(self):
+        """Get latest audio classification result if available."""
+        try:
+            return self.audio_results_queue.get_nowait()
+        except queue.Empty:
+            return None

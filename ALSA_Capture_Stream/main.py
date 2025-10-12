@@ -40,6 +40,8 @@ parser.add_argument('--port', type=int, default=5005,
                     help='Target UDP port (default: 5005)')
 parser.add_argument('--duration', type=int, default=5,
                     help='Test recording duration in seconds (default: 5)')
+parser.add_argument('--save', type=str, metavar='FILENAME',
+                    help='Save recorded audio to file (WAV format). Example: --save output.wav')
 args = parser.parse_args()
 
 # Use provided device or default
@@ -83,6 +85,7 @@ Interface:         {interface}
 Sample rate:       {settings.sample_rate} Hz
 Capture channels:  {settings.captured_channels}
 Encode channels:   {settings.encoded_channels}
+Save to file:      {args.save if args.save else 'No'}
 """)
 
 if args.stream:
@@ -154,8 +157,12 @@ else:
         
         audio_data[offset] = decoder.decode(encoded_packet["data"])
     
-    # Play decoded audio
+    # Prepare decoded audio
     audio_array = np.frombuffer(b''.join(audio_data), dtype=np.int16)
     if settings.encoded_channels > 1:
         audio_array = audio_array.reshape(-1, settings.encoded_channels)
-    sd.play(audio_array, samplerate=settings.sample_rate, blocking=True)
+    
+    # Save audio file if requested
+    
+    # Play decoded audio (optional)
+    # sd.play(audio_array, samplerate=settings.sample_rate, blocking=True)

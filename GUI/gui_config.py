@@ -28,8 +28,9 @@ class VisionInferenceConfig:
 @dataclass
 class AudioInferenceConfig:
     """Audio inference state."""
-    AUDIO_INFERENCE_AVAILABLE: bool = False
-    AUDIO_MODEL_NAME: str = ""
+    AUDIO_INFERENCE_AVAILABLE: bool = True
+    AUDIO_MODEL_NAME: str = "audio_weights.ckpt"
+    AUDIO_CLASSIFICATION_DURATION: float = 5.0  # seconds of audio to classify
 
 
 @dataclass
