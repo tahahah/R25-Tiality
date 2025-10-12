@@ -743,9 +743,9 @@ class ExplorerGUI:
         if pygame_keys[pygame.K_d]:
             vx = key_speed
         if pygame_keys[pygame.K_w]:
-            vy = key_speed
-        if pygame_keys[pygame.K_s]:
             vy = -key_speed
+        if pygame_keys[pygame.K_s]:
+            vy = key_speed
         if pygame_keys[pygame.K_q]:
             w = -rot_speed
         if pygame_keys[pygame.K_e]:
