@@ -5,7 +5,6 @@ import numpy as np
 from time import time
 from queue import Queue
 from copy import deepcopy
-from scipy.io import wavfile
 from capture_object import CaptureObject
 from encoder_object import EncoderObject
 from decoder_object import DecoderObject
@@ -164,9 +163,6 @@ else:
         audio_array = audio_array.reshape(-1, settings.encoded_channels)
     
     # Save audio file if requested
-    if args.save:
-        wavfile.write(args.save, settings.sample_rate, audio_array)
-        print(f"Audio saved to: {args.save}")
     
     # Play decoded audio (optional)
     # sd.play(audio_array, samplerate=settings.sample_rate, blocking=True)
