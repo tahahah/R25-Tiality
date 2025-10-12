@@ -49,11 +49,6 @@ pip install -r "requirements.txt"
 cd "$SCRIPT_DIR"
 
 
-echo "--- Starting pigpio daemon ---"
-sudo systemctl enable pigpiod
-sudo systemctl start pigpiod
-echo "pigpio daemon started and enabled for auto-start"
-
 echo "--- Verifying picamera2 availability ---"
 if python3 -c "from picamera2 import Picamera2" 2>/dev/null; then
     echo "picamera2 accessible in virtual environment"
