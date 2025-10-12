@@ -744,7 +744,7 @@ class ExplorerGUI:
         try:
             if self.joystick is not None and self.joystick.get_init():
                 try:
-                    y_axis = self.joystick.get_axis(1)
+                    y_axis = -self.joystick.get_axis(1)
                 except Exception:
                     y_axis = 0.0
 
