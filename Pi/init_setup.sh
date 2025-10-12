@@ -26,7 +26,7 @@ sudo apt install -y python3-picamera2 python3-opencv python3-numpy \
     libogg0 libvorbis0a libvorbisfile3 libvorbisenc2 \
     python3-av \
     python3-aiortc \
-    python3-grpcio python3-protobuf \
+    python3-grpcio \
     python3-cffi python3-pycparser \
     python3-rpi.gpio \
      --no-install-recommends

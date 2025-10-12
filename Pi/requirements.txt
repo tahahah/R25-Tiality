@@ -6,3 +6,4 @@ pyserial
 pigpio>=1.78
 pynput>=1.7.0
 pillow
+protobuf>=5.26.1
