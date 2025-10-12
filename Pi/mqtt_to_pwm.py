@@ -16,7 +16,7 @@ except RuntimeError:
 # ---------------- Configuration ----------------
 # BCM pin numbers
 ENABLE_PINS: List[int] = [22, 27, 19, 26]
-INPUT_PINS: List[int] = [3, 2, 17, 4, 6, 13, 5, 11]  # 8 pins -> 4 pairs, the front two are flipped.
+INPUT_PINS: List[int] = [2, 3, 4, 17, 13, 6, 11, 5]  # 8 pins -> 4 pairs, the front two are flipped.
 PWM_FREQUENCY_HZ = 1000
 DEFAULT_RAMP_MS = 2000
 
@@ -33,7 +33,7 @@ MOTOR_COMPENSATION = {
 # Adjust MOTOR_ORDER if your wiring order does not match [front-left, front-right, rear-left, rear-right]
 # Set MOTOR_POLARITY element to -1 to invert a wheel if its "forward" is electrically reversed
 MOTOR_ORDER = [0, 1, 2, 3]
-MOTOR_POLARITY = [-1, -1, -1, -1]
+MOTOR_POLARITY = [1, 1, 1, 1]
 
 MQTT_BROKER_HOST = "localhost"
 TX_TOPIC = "robot/tx"
