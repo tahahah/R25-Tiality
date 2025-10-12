@@ -63,22 +63,14 @@ echo "--- Installing Python packages into the venv ---"
 if ! command -v uv >/dev/null 2>&1; then
     pip install --upgrade pip
 fi
-# Use apt-provided RPi.GPIO, aiortc, and av; avoid building via pip
-PI_REQ_TMP="$(mktemp)"
-grep -v -E '^\s*(RPi\.GPIO|aiortc|av)(==.*)?\s*$' "$SCRIPT_DIR/requirements.txt" > "$PI_REQ_TMP"
-install_with_uv -r "$PI_REQ_TMP"
-rm -f "$PI_REQ_TMP"
+install_with_uv -r "$SCRIPT_DIR/requirements.txt"
 
 cd ..
 pwd
 cd ALSA_Capture_Stream
 echo "--- Installing ALSA_Capture_Stream dependencies ---"
 pwd
-ALSA_REQ_TMP="$(mktemp)"
-# Exclude numpy here to ensure we use the system-provided NumPy from apt
-grep -v -E '^\s*numpy(==.*)?\s*$' requirements.txt > "$ALSA_REQ_TMP"
-install_with_uv -r "$ALSA_REQ_TMP"
-rm -f "$ALSA_REQ_TMP"
+install_with_uv -r "requirements.txt"
 cd "$SCRIPT_DIR"
 
 

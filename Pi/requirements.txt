@@ -1,13 +1,8 @@
 paho-mqtt
 pyserial
-RPi.GPIO
-aiortc
-# Gimbal/servo control dependencies
+# RPi.GPIO via apt (python3-rpi.gpio)
+# aiortc via apt (python3-aiortc)
+# grpc stack via tiality_server package
 pigpio>=1.78
 pynput>=1.7.0
-
-grpcio 
-grpcio-tools 
-protobuf 
-pillow 
-
+pillow
