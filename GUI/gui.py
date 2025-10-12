@@ -714,14 +714,6 @@ class ExplorerGUI:
                     rot_axis = self.joystick.get_axis(1)
                 except Exception:
                     rot_axis = 0.0
-                try:
-                    front_axle_axis = self.joystick.get_axis(2)
-                except Exception:
-                    front_axle_axis = 0.0
-                try:
-                    back_axle_axis = self.joystick.get_axis(3)
-                except Exception:
-                    back_axle_axis = 0.0
 
                 JOY_MAX_SPEED = 40.0
                 JOY_MAX_ROT = 40.0
@@ -729,8 +721,6 @@ class ExplorerGUI:
                 vy = max(-100.0, min(100.0, -y_axis * JOY_MAX_SPEED))
 
                 w = max(-100.0, min(100.0, rot_axis * JOY_MAX_ROT))
-                vy_front = max(-100.0, min(100.0, front_axle_axis * JOY_MAX_SPEED))
-                vy_back = max(-100.0, min(100.0, back_axle_axis * JOY_MAX_SPEED))
 
         except Exception:
             pass
@@ -758,14 +748,10 @@ class ExplorerGUI:
             vy = 0.0
         if abs(w) < DEADZONE * 100.0:
             w = 0.0
-        if abs(vy_front) < DEADZONE * 100.0:
-            vy_front = 0.0
-        if abs(vy_back) < DEADZONE * 100.0:
-            vy_back = 0.0
 
         # Emit command: vector if movement present, else stop
-        if (vx != 0.0) or (vy != 0.0) or (w != 0.0) or (vy_front != 0.0) or (vy_back != 0.0):
-            cmd = {"type": "vector", "action": "set", "vx": int(vx), "vy": int(vy), "w": int(w), "vy_front": int(vy_front), "vy_back": int(vy_back)}
+        if (vx != 0.0) or (vy != 0.0) or (w != 0.0):
+            cmd = {"type": "vector", "action": "set", "vx": int(vx), "vy": int(vy), "w": int(w)}
         else:
             cmd = self.default_keys
 
