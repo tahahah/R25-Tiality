@@ -9,14 +9,15 @@
 
 set -e
 
+# Use /var/tmp for temporary build files to avoid RAM-limited /tmp
+echo "--- Setting default temporary directory to /var/tmp ---"
+export TMPDIR="/var/tmp"
+export TEMP="/var/tmp"
+export TMP="/var/tmp"
+
 # Resolve the directory of this script so paths work regardless of CWD (POSIX)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv_pi"
-# Use the system Python managed by apt so system site-packages are compatible
-PYTHON_BIN="/usr/bin/python3"
-if [ ! -x "$PYTHON_BIN" ]; then
-    PYTHON_BIN="$(command -v python3)"
-fi
 
 echo "--- Installing system packages (requires sudo) ---"
 sudo apt update
@@ -24,11 +25,6 @@ sudo apt install -y python3-picamera2 python3-opencv python3-numpy \
     libportaudio2 portaudio19-dev \
     libopus0 libopusfile0 libopusenc0 \
     libogg0 libvorbis0a libvorbisfile3 libvorbisenc2 \
-    python3-av \
-    python3-aiortc \
-    python3-grpcio python3-grpc-tools protobuf-compiler \
-    python3-cffi python3-pycparser \
-    python3-rpi.gpio \
      --no-install-recommends
 
 echo "--- Creating virtual environment with system site packages ---"
@@ -36,8 +32,7 @@ if [ -d "$VENV_DIR" ]; then
     echo "Removing existing virtual environment at $VENV_DIR..."
     rm -rf "$VENV_DIR"
 fi
-echo "Using Python interpreter: $($PYTHON_BIN -V 2>/dev/null || echo "$PYTHON_BIN")"
-$PYTHON_BIN -m venv "$VENV_DIR" --system-site-packages
+python3 -m venv "$VENV_DIR" --system-site-packages
 . "$VENV_DIR/bin/activate"
 
 echo "--- Installing Python packages into the venv ---"
@@ -54,23 +49,10 @@ pip install -r "requirements.txt"
 cd "$SCRIPT_DIR"
 
 
-# echo "--- Starting pigpio daemon ---"
-# sudo systemctl enable pigpiod
-# sudo systemctl start pigpiod
-# echo "pigpio daemon started and enabled for auto-start"
-
-echo "--- Regenerating gRPC Python stubs to match system grpc version ---"
-REPO_DIR="$(dirname "$SCRIPT_DIR")"
-PROTO_DIR="$REPO_DIR/tiality_server/grpc_video_streaming"
-if python3 -c "import grpc_tools" 2>/dev/null; then
-    python3 -m grpc_tools.protoc \
-        -I"$PROTO_DIR" -I"$REPO_DIR" \
-        --python_out="$PROTO_DIR" \
-        --grpc_python_out="$PROTO_DIR" \
-        "$PROTO_DIR/video_streaming.proto" || echo "WARNING: Failed to regenerate gRPC stubs"
-else
-    echo "WARNING: grpc_tools not available; skipping stub regeneration"
-fi
+echo "--- Starting pigpio daemon ---"
+sudo systemctl enable pigpiod
+sudo systemctl start pigpiod
+echo "pigpio daemon started and enabled for auto-start"
 
 echo "--- Verifying picamera2 availability ---"
 if python3 -c "from picamera2 import Picamera2" 2>/dev/null; then
