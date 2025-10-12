@@ -19,6 +19,7 @@ sudo apt install -y python3-picamera2 python3-opencv python3-numpy \
     libportaudio2 portaudio19-dev \
     libopus0 libopusfile0 libopusenc0 \
     libogg0 libvorbis0a libvorbisfile3 libvorbisenc2 \
+    python3-av \
     python3-rpi.gpio \
      --no-install-recommends
 
