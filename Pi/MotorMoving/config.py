@@ -27,8 +27,8 @@ DEFAULT_GIMBAL_DEGREES = 10
 DEFAULT_MOTOR_SPEED = 0.5
 
 # Gimbal Pin Configuration
-GIMBAL_PIN_X = 12  # X-axis servo pin (left/right) - uses pigpio
-GIMBAL_PIN_Y = 25  # Y-axis servo pin (up/down) - uses pigpio
+GIMBAL_PIN_X = 25  # X-axis servo pin (left/right) - uses pigpio
+GIMBAL_PIN_Y = 12  # Y-axis servo pin (up/down) - uses pigpio
 GIMBAL_PIN_C = 24  # C-axis servo pin (crane up/down) - uses RPi.GPIO
 
 # Servo Library Configuration
