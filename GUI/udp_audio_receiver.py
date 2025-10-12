@@ -2,6 +2,7 @@ import socket
 import struct
 import logging
 import threading
+import time
 import sounddevice as sd
 import numpy as np
 from queue import Queue, Empty
@@ -243,6 +244,16 @@ class UDPAudioReceiver:
                 sequence_number, timestamp, data_length = struct.unpack(
                     self.HEADER_FORMAT, data[:self.HEADER_SIZE]
                 )
+
+                ### Latency calculation -- BRANDONS CODE ####
+                current_time = time.time()
+                audio_latency = (current_time - timestamp) * 1000  # Convert to ms
+                
+                # Save latency to file
+                with open('audio_latency.txt', 'a') as f:
+                    f.write(f"Seq: {sequence_number}, Latency: {audio_latency:.2f}ms, Timestamp: {timestamp}, Received: {current_time}\n")
+                
+                ### END Latency calculation -- BRANDONS CODE ####
                 
                 # Extract audio data
                 audio_data = data[self.HEADER_SIZE:self.HEADER_SIZE + data_length]

@@ -535,7 +535,7 @@ class ExplorerGUI:
         table_y = 535
         row_height = 25
         col_widths = [80, 180, 80, 100]  # Timestamp, Animal, Type, Confidence
-        max_visible_rows = 5
+        max_visible_rows = 4
         
         # Calculate which records to display based on scroll offset
         total_records = len(self.detection_history)
@@ -725,12 +725,12 @@ class ExplorerGUI:
         try:
             if self.joystick is not None and self.joystick.get_init():
                 try:
-                    y_axis = -self.joystick.get_axis(1)
+                    y_axis = self.joystick.get_axis(1)
                 except Exception:
                     y_axis = 0.0
 
                 try:
-                    rot_axis = self.joystick.get_axis(0)
+                    rot_axis = -self.joystick.get_axis(0)
                 except Exception:
                     rot_axis = 0.0
 
@@ -993,7 +993,7 @@ class ExplorerGUI:
                 detection_record = {
                     'timestamp': timestamp,
                     'animal': result['top_prediction'],
-                    'type': 'Audio',
+                    'type': 'Audio    ',
                     'confidence': result['top_confidence']
                 }
                 self.detection_history.append(detection_record)
