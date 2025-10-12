@@ -124,31 +124,30 @@ class MotorController:
             m.set_duty(comp_speed)
 
     def set_vector(self, vx: float, vy: float, omega: float = 0.0):
-        """Mecanum mixing for true crab-walk (lateral) and forward motion.
+        """Skid-steer mixing for forward/backward and rotational movement.
         Inputs are percentages in range [-100..100].
           - vy: forward is positive
-          - vx: right (lateral) is positive
-          - omega: rotate clockwise is positive (optional; default 0)
+          - omega: rotate clockwise is positive
+          - vx: lateral (strafe) movement, is ignored for this drive type.
 
-        Standard mecanum formula (see referenced blog):
-          FL = vy + vx + omega
-          FR = vy - vx - omega
-          RL = vy - vx + omega
-          RR = vy + vx - omega
+        Skid-steer (tank-style) formula:
+          Left_Wheels  = vy + omega
+          Right_Wheels = vy - omega
 
         Results are then mapped through MOTOR_ORDER and MOTOR_POLARITY to match wiring.
         """
         # Clamp inputs
-        vx = max(-100.0, min(100.0, float(vx)))
+        # vx is ignored in this configuration
         vy = max(-100.0, min(100.0, float(vy)))
         omega = max(-100.0, min(100.0, float(omega)))
 
-        # Compute theoretical wheel commands in [FL, FR, RL, RR]
+        # Compute theoretical wheel commands using skid-steer logic
+        # [FL, FR, RL, RR]
         wheel_cmds = [
-            vy + vx + omega,  # FL
-            vy - vx - omega,  # FR
-            vy - vx + omega,  # RL
-            vy + vx - omega,  # RR
+            vy + omega,  # FL (Left wheel)
+            vy - omega,  # FR (Right wheel)
+            vy + omega,  # RL (Left wheel)
+            vy - omega,  # RR (Right wheel)
         ]
 
         # Normalize to keep within [-100, 100]
@@ -158,8 +157,8 @@ class MotorController:
             wheel_cmds = [val * scale for val in wheel_cmds]
 
         logging.debug(
-            "Mecanum mix (vx=%.1f, vy=%.1f, w=%.1f) -> FL=%.1f FR=%.1f RL=%.1f RR=%.1f",
-            vx, vy, omega, wheel_cmds[0], wheel_cmds[1], wheel_cmds[2], wheel_cmds[3]
+            "Skid-steer mix (vy=%.1f, w=%.1f) -> FL=%.1f FR=%.1f RL=%.1f RR=%.1f",
+            vy, omega, wheel_cmds[0], wheel_cmds[1], wheel_cmds[2], wheel_cmds[3]
         )
 
         # Apply mapping to physical motors and compensation/polarity
