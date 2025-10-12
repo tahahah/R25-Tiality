@@ -201,8 +201,8 @@ class ExplorerGUI:
 
     def _load_background(self, image_path: str) -> None:
         """Load all background images for segment lighting."""
-        # Determine the bg folder path
-        bg_folder = os.path.join(os.path.dirname(image_path), 'bg')
+        # Determine the bg folder path (image_path already points to bg folder)
+        bg_folder = os.path.dirname(image_path)
         
         # Load all segment backgrounds
         self.backgrounds = {
