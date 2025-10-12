@@ -200,8 +200,27 @@ class ExplorerGUI:
     # ============================================================================
 
     def _load_background(self, image_path: str) -> None:
-        self.background = pygame.image.load(image_path)
-        logger.info(f"Background image loaded: {image_path}")
+        """Load all background images for segment lighting."""
+        # Determine the bg folder path
+        bg_folder = os.path.join(os.path.dirname(image_path), 'bg')
+        
+        # Load all segment backgrounds
+        self.backgrounds = {
+            'default': pygame.image.load(os.path.join(bg_folder, 'wildlife_explorer_cams_open.png')),
+            'left': pygame.image.load(os.path.join(bg_folder, 'left.png')),
+            'right': pygame.image.load(os.path.join(bg_folder, 'right.png')),
+            't_left': pygame.image.load(os.path.join(bg_folder, 't_left.png')),
+            't_right': pygame.image.load(os.path.join(bg_folder, 't_right.png')),
+            'b_left': pygame.image.load(os.path.join(bg_folder, 'b_left.png')),
+            'b_right': pygame.image.load(os.path.join(bg_folder, 'b_right.png')),
+            'top': pygame.image.load(os.path.join(bg_folder, 'top.png')),
+            'down': pygame.image.load(os.path.join(bg_folder, 'down.png'))
+        }
+        
+        # Set default background
+        self.current_segment = 'default'
+        self.background = self.backgrounds['default']
+        logger.info(f"All background images loaded from: {bg_folder}")
         
 
     def _init_display(self) -> None:
@@ -567,6 +586,25 @@ class ExplorerGUI:
             confidence_surface = self.fonts['small'].render(confidence_text, True, self.colours.BLACK)
             confidence_rect = confidence_surface.get_rect(center=(table_x + col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3]//2, y_pos))
             self.screen.blit(confidence_surface, confidence_rect)
+
+    def light_segment(self, segment: str) -> None:
+        """
+        Light up a specific audio direction segment by changing the background.
+        
+        Args:
+            segment: Segment name - 'left', 'right', 't_left' (top_left), 't_right' (top_right),
+                     'b_left' (bottom_left), 'b_right' (bottom_right), 'top', 'down', or 'default'
+        """
+        if segment in self.backgrounds:
+            self.current_segment = segment
+            self.background = self.backgrounds[segment]
+            logger.debug(f"Segment lit: {segment}")
+        else:
+            logger.warning(f"Unknown segment: {segment}")
+    
+    def reset_segment(self) -> None:
+        """Reset background to default (no segment lit)."""
+        self.light_segment('default')
 
     def draw_overlays(self) -> None:
         """Draw all interactive overlays on top of the background image."""
@@ -1122,7 +1160,7 @@ if __name__ == "__main__":
     print()
     
     # Configure Background Path
-    image_path = "GUI/wildlife_explorer_cams_open.png"
+    image_path = "GUI/bg/wildlife_explorer_cams_open.png"
     
     if not os.path.exists(image_path):
         print(f"Image file '{image_path}' not found.")
