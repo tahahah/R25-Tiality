@@ -969,13 +969,13 @@ class ExplorerGUI:
                 else:
                     self._send_gimbal_action_with_throttle("x", "x_left", degrees=deg_x, cooldown_ms=cd_x)
 
-            # Vertical: up/down (negative is up on most controllers)
+            # Vertical: up/down (now inverted so joystick down = gimbal up)
             deg_y, cd_y = calc_params(right_y)
             if deg_y > 0.0:
-                if right_y < 0:
-                    self._send_gimbal_action_with_throttle("y", "y_up", degrees=deg_y, cooldown_ms=cd_y)
-                else:
+                if right_y < 0: # Joystick is pushed UP
                     self._send_gimbal_action_with_throttle("y", "y_down", degrees=deg_y, cooldown_ms=cd_y)
+                else: # Joystick is pushed DOWN
+                    self._send_gimbal_action_with_throttle("y", "y_up", degrees=deg_y, cooldown_ms=cd_y)
         except Exception:
             # Never let controller issues crash the loop
             pass
