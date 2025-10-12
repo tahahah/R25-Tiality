@@ -526,7 +526,10 @@ class DataLogger:
                     "last_save_time": timestamp,
                     "session_folder": str(self.session_folder)
                 },
-                "statistics": self.stats.copy(),
+                "statistics": {
+                    k: v.isoformat() if isinstance(v, datetime) else v 
+                    for k, v in self.stats.items()
+                },
                 "latest_save": {
                     "timestamp": timestamp,
                     "video_frames": video_count,
