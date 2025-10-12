@@ -1078,6 +1078,7 @@ class ExplorerGUI:
                 logger.error(f"Audio cleanup error: {e}")
         
         self.server_manager.close_servers()
+        self.inference_manager.shutdown_inference_manager()
         pygame.quit()
         sys.exit()
     
