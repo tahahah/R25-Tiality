@@ -63,10 +63,10 @@ class InferenceManager:
             )
             self.vision_thread.start()
         if self.audio_inference_available:
-            # Initialize audio classifier (lazy load)
+            # Initialize audio classifier (load model immediately at startup)
             try:
-                self.audio_classifier = AudioClassifier(lazy_load=True)
-                logging.info("Audio classifier initialized")
+                self.audio_classifier = AudioClassifier(lazy_load=False)
+                logging.info("Audio classifier initialized with model loaded")
             except Exception as e:
                 logging.error(f"Audio classifier init failed: {e}")
                 self.audio_inference_available = False
