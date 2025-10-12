@@ -9,6 +9,12 @@
 
 set -e
 
+# Use /var/tmp for temporary build files to avoid RAM-limited /tmp
+echo "--- Setting default temporary directory to /var/tmp ---"
+export TMPDIR="/var/tmp"
+export TEMP="/var/tmp"
+export TMP="/var/tmp"
+
 # Resolve the directory of this script so paths work regardless of CWD (POSIX)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv_pi"

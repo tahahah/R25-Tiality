@@ -3,6 +3,11 @@
 numpy
 opencv-python-headless==4.12.0.88
 
+# Model inference
+ultralytics
+torch
+torchaudio
+
 # Networking/streaming
 paho-mqtt==2.1.0
 grpcio==1.74.0
