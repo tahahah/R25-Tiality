@@ -33,7 +33,7 @@ MOTOR_COMPENSATION = {
 # Adjust MOTOR_ORDER if your wiring order does not match [front-left, front-right, rear-left, rear-right]
 # Set MOTOR_POLARITY element to -1 to invert a wheel if its "forward" is electrically reversed
 MOTOR_ORDER = [0, 1, 2, 3]
-MOTOR_POLARITY = [1, 1, 1, 1]
+MOTOR_POLARITY = [-1, -1, -1, -1]
 
 MQTT_BROKER_HOST = "localhost"
 TX_TOPIC = "robot/tx"

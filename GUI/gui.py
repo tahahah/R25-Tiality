@@ -724,6 +724,7 @@ class ExplorerGUI:
                     back_axle_axis = 0.0
 
                 JOY_MAX_SPEED = 40.0
+                JOY_MAX_ROT = 40.0
                 vx = max(-100.0, min(100.0, x_axis * JOY_MAX_SPEED))
                 vy = max(-100.0, min(100.0, -y_axis * JOY_MAX_SPEED))
 
@@ -743,9 +744,9 @@ class ExplorerGUI:
         if pygame_keys[pygame.K_d]:
             vx = key_speed
         if pygame_keys[pygame.K_w]:
-            vy = -key_speed
-        if pygame_keys[pygame.K_s]:
             vy = key_speed
+        if pygame_keys[pygame.K_s]:
+            vy = -key_speed
         if pygame_keys[pygame.K_q]:
             w = -rot_speed
         if pygame_keys[pygame.K_e]:
