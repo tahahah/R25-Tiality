@@ -240,12 +240,6 @@ class ExplorerGUI:
         
         self.camera_surfaces = [None] * self.config.NUM_CAMERAS
         self.camera_threads = []
-        
-        # Status indicator positions for each camera
-        self.camera_indicator_positions = [
-            (370, self.config.SCREEN_HEIGHT - 500),   # Camera 1 indicator
-            (909, self.config.SCREEN_HEIGHT - 500)    # Camera 2 indicator
-        ]
 
     def _init_state(self) -> None:
         """Initialise Explorer Control state variables."""
@@ -419,7 +413,7 @@ class ExplorerGUI:
         """Draw camera feeds and their status indicators."""
         for camera_index in range(self.config.NUM_CAMERAS):
             self._draw_single_camera(camera_index)
-            self._draw_camera_status(camera_index)
+
 
     def _draw_single_camera(self, camera_index: int) -> None:
         camera_surface = self.camera_surfaces[camera_index]
@@ -427,14 +421,7 @@ class ExplorerGUI:
             camera_position = self.camera_positions[camera_index]
             self.screen.blit(camera_surface, camera_position)
 
-    def _draw_camera_status(self, camera_index: int) -> None:
-        indicator_position = self.camera_indicator_positions[camera_index]
-        is_camera_active = self.camera_states[camera_index]
-        indicator_colour = self.colours.GREEN if is_camera_active else self.colours.RED
-        
-        # Draw filled circle with white border
-        pygame.draw.circle(self.screen, indicator_colour, indicator_position, 8)
-        pygame.draw.circle(self.screen, self.colours.WHITE, indicator_position, 8, 3)
+
 
     def _draw_movement_status(self) -> None:
         """Draw current movement status overlay."""
@@ -461,12 +448,10 @@ class ExplorerGUI:
         self.screen.blit(text_surface, text_rect)
 
     def _draw_status_info(self) -> None:
-        """Draw connection, arm, and inference status information."""
+        """Draw connection status information."""
         status_y_position = self.config.SCREEN_HEIGHT - 50
         
         self._draw_connection_status(status_y_position)
-        self._draw_arm_status(status_y_position - 25)
-        self._draw_inference_status(status_y_position - 50)
 
     def _draw_connection_status(self, y_position: int) -> None:
         is_connected = (self.connection_status == ConnectionStatus.CONNECTED)
@@ -982,6 +967,12 @@ class ExplorerGUI:
 
     def update(self) -> None:
         """Update game state (called once per frame)."""
+        # Check connection status and update if connected
+        if self.server_manager.connection_established_event.is_set():
+            if self.connection_status != ConnectionStatus.CONNECTED:
+                self.connection_status = ConnectionStatus.CONNECTED
+                logger.info("Pi connected successfully")
+        
         # Always process gimbal from controller regardless of robot/sim mode
         self._update_gimbal_from_controller()
         if self.is_robot:
