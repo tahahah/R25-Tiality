@@ -753,9 +753,9 @@ class ExplorerGUI:
         if pygame_keys[pygame.K_s]:
             vy = -key_speed
         if pygame_keys[pygame.K_a]:
-            w = -rot_speed
-        if pygame_keys[pygame.K_d]:
             w = rot_speed
+        if pygame_keys[pygame.K_d]:
+            w = -rot_speed
 
         # Deadzone to avoid noise
         DEADZONE = 0.10
@@ -925,7 +925,7 @@ class ExplorerGUI:
             except Exception:
                 right_x = 0.0
             try:
-                right_y = self.joystick.get_axis(self.RIGHT_STICK_Y_AXIS)
+                right_y = -self.joystick.get_axis(self.RIGHT_STICK_Y_AXIS)
             except Exception:
                 right_y = 0.0
 
@@ -954,9 +954,9 @@ class ExplorerGUI:
             deg_y, cd_y = calc_params(right_y)
             if deg_y > 0.0:
                 if right_y < 0: # Joystick is pushed UP
-                    self._send_gimbal_action_with_throttle("y", "y_down", degrees=deg_y, cooldown_ms=cd_y)
-                else: # Joystick is pushed DOWN
                     self._send_gimbal_action_with_throttle("y", "y_up", degrees=deg_y, cooldown_ms=cd_y)
+                else: # Joystick is pushed DOWN
+                    self._send_gimbal_action_with_throttle("y", "y_down", degrees=deg_y, cooldown_ms=cd_y)
         except Exception:
             # Never let controller issues crash the loop
             pass
