@@ -26,7 +26,7 @@ sudo apt install -y python3-picamera2 python3-opencv python3-numpy \
     libogg0 libvorbis0a libvorbisfile3 libvorbisenc2 \
     python3-av \
     python3-aiortc \
-    python3-grpcio \
+    python3-grpcio python3-grpc-tools protobuf-compiler \
     python3-cffi python3-pycparser \
     python3-rpi.gpio \
      --no-install-recommends
@@ -40,38 +40,17 @@ echo "Using Python interpreter: $($PYTHON_BIN -V 2>/dev/null || echo "$PYTHON_BI
 $PYTHON_BIN -m venv "$VENV_DIR" --system-site-packages
 . "$VENV_DIR/bin/activate"
 
-echo "--- Installing uv (fast pip) if needed ---"
-if ! command -v uv >/dev/null 2>&1; then
-    echo "uv not found; installing locally..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH"
-fi
-
-install_with_uv() {
-    # Install Python packages using uv if available; otherwise fall back to pip.
-    if command -v uv >/dev/null 2>&1; then
-        echo "Using uv to install: $*"
-        if ! uv pip install "$@"; then
-            echo "uv installation failed; falling back to pip..."
-            pip install "$@"
-        fi
-    else
-        pip install "$@"
-    fi
-}
-
 echo "--- Installing Python packages into the venv ---"
 # Intentionally omit numpy/opencv to avoid conflicts; rely on system packages
-if ! command -v uv >/dev/null 2>&1; then
-    pip install --upgrade pip
-fi
-install_with_uv -r "$SCRIPT_DIR/requirements.txt"
+pip install --upgrade pip
+pip install -r "$SCRIPT_DIR/requirements.txt"
 
 cd ..
 pwd
 cd ALSA_Capture_Stream
 echo "--- Installing ALSA_Capture_Stream dependencies ---"
 pwd
-install_with_uv -r "requirements.txt"
+pip install -r "requirements.txt"
 cd "$SCRIPT_DIR"
 
 
@@ -79,6 +58,19 @@ cd "$SCRIPT_DIR"
 # sudo systemctl enable pigpiod
 # sudo systemctl start pigpiod
 # echo "pigpio daemon started and enabled for auto-start"
+
+echo "--- Regenerating gRPC Python stubs to match system grpc version ---"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+PROTO_DIR="$REPO_DIR/tiality_server/grpc_video_streaming"
+if python3 -c "import grpc_tools" 2>/dev/null; then
+    python3 -m grpc_tools.protoc \
+        -I"$PROTO_DIR" -I"$REPO_DIR" \
+        --python_out="$PROTO_DIR" \
+        --grpc_python_out="$PROTO_DIR" \
+        "$PROTO_DIR/video_streaming.proto" || echo "WARNING: Failed to regenerate gRPC stubs"
+else
+    echo "WARNING: grpc_tools not available; skipping stub regeneration"
+fi
 
 echo "--- Verifying picamera2 availability ---"
 if python3 -c "from picamera2 import Picamera2" 2>/dev/null; then
