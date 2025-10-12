@@ -744,12 +744,12 @@ class ExplorerGUI:
         try:
             if self.joystick is not None and self.joystick.get_init():
                 try:
-                    y_axis = self.joystick.get_axis(0)
+                    y_axis = self.joystick.get_axis(1)
                 except Exception:
                     y_axis = 0.0
 
                 try:
-                    rot_axis = self.joystick.get_axis(1)
+                    rot_axis = self.joystick.get_axis(0)
                 except Exception:
                     rot_axis = 0.0
 
@@ -767,17 +767,13 @@ class ExplorerGUI:
         pygame_keys = pygame.key.get_pressed()
         key_speed = 50.0
         rot_speed = 40.0
-        if pygame_keys[pygame.K_a]:
-            vx = -key_speed
-        if pygame_keys[pygame.K_d]:
-            vx = key_speed
         if pygame_keys[pygame.K_w]:
             vy = key_speed
         if pygame_keys[pygame.K_s]:
             vy = -key_speed
-        if pygame_keys[pygame.K_q]:
+        if pygame_keys[pygame.K_a]:
             w = -rot_speed
-        if pygame_keys[pygame.K_e]:
+        if pygame_keys[pygame.K_d]:
             w = rot_speed
 
         # Deadzone to avoid noise
