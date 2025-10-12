@@ -19,6 +19,7 @@ sudo apt install -y python3-picamera2 python3-opencv python3-numpy \
     libportaudio2 portaudio19-dev \
     libopus0 libopusfile0 libopusenc0 \
     libogg0 libvorbis0a libvorbisfile3 libvorbisenc2 \
+    python3-rpi.gpio \
      --no-install-recommends
 
 echo "--- Creating virtual environment with system site packages ---"
@@ -29,17 +30,46 @@ fi
 python3 -m venv "$VENV_DIR" --system-site-packages
 . "$VENV_DIR/bin/activate"
 
+echo "--- Installing uv (fast pip) if needed ---"
+if ! command -v uv >/dev/null 2>&1; then
+    echo "uv not found; installing locally..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH"
+fi
+
+install_with_uv() {
+    # Install Python packages using uv if available; otherwise fall back to pip.
+    if command -v uv >/dev/null 2>&1; then
+        echo "Using uv to install: $*"
+        if ! uv pip install "$@"; then
+            echo "uv installation failed; falling back to pip..."
+            pip install "$@"
+        fi
+    else
+        pip install "$@"
+    fi
+}
+
 echo "--- Installing Python packages into the venv ---"
 # Intentionally omit numpy/opencv to avoid conflicts; rely on system packages
-pip install --upgrade pip
-pip install -r "$SCRIPT_DIR/requirements.txt"
+if ! command -v uv >/dev/null 2>&1; then
+    pip install --upgrade pip
+fi
+# Use apt-provided RPi.GPIO; avoid building via pip
+PI_REQ_TMP="$(mktemp)"
+grep -v -E '^\s*RPi\.GPIO(==.*)?\s*$' "$SCRIPT_DIR/requirements.txt" > "$PI_REQ_TMP"
+install_with_uv -r "$PI_REQ_TMP"
+rm -f "$PI_REQ_TMP"
 
 cd ..
 pwd
 cd ALSA_Capture_Stream
 echo "--- Installing ALSA_Capture_Stream dependencies ---"
 pwd
-pip install -r "requirements.txt"
+ALSA_REQ_TMP="$(mktemp)"
+# Exclude numpy here to ensure we use the system-provided NumPy from apt
+grep -v -E '^\s*numpy(==.*)?\s*$' requirements.txt > "$ALSA_REQ_TMP"
+install_with_uv -r "$ALSA_REQ_TMP"
+rm -f "$ALSA_REQ_TMP"
 cd "$SCRIPT_DIR"
 
 
