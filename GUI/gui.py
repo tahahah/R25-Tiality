@@ -55,19 +55,15 @@ def _decode_video_frame_opencv(frame_bytes: bytes) -> pygame.Surface:
         img_bgr = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
         
         img_bgr = cv2.resize(img_bgr, (510, 230), interpolation=cv2.INTER_AREA)
-
-        # 3. Convert the color format from BGR (OpenCV's default) to RGB (Pygame's default).
-        # img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         
-        # 4. Correct the orientation. OpenCV arrays are (height, width), but
-        #    pygame.surfarray.make_surface expects (width, height). We swap the axes.
-        # img_rgb = img_rgb.swapaxes(0, 1)
+        # Rotate 180 degrees
+        img_bgr = cv2.rotate(img_bgr, cv2.ROTATE_180)
 
-        # 5. Create a Pygame surface directly from the NumPy array.
-        #    This is another very fast, low-level operation.
-        # frame_surface = pygame.surfarray.make_surface(img_rgb)
+        # Convert to RGB for Pygame
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         
-        return img_bgr
+        # Return OpenCV image (BGR format) - conversion to pygame surface happens in vision_worker
+        return img_rgb
         
     except Exception as e:
         # If any part of the decoding fails (e.g., due to a corrupted frame),
