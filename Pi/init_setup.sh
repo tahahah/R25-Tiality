@@ -25,6 +25,7 @@ sudo apt install -y python3-picamera2 python3-opencv python3-numpy \
     libportaudio2 portaudio19-dev \
     libopus0 libopusfile0 libopusenc0 \
     libogg0 libvorbis0a libvorbisfile3 libvorbisenc2 \
+    pigpiod python3-pigpio \
      --no-install-recommends
 
 echo "--- Creating virtual environment with system site packages ---"
@@ -47,6 +48,12 @@ echo "--- Installing ALSA_Capture_Stream dependencies ---"
 pwd
 pip install -r "requirements.txt"
 cd "$SCRIPT_DIR"
+
+
+echo "--- Starting pigpio daemon ---"
+sudo systemctl enable pigpiod
+sudo systemctl start pigpiod
+echo "pigpio daemon started and enabled for auto-start"
 
 
 echo "--- Verifying picamera2 availability ---"
