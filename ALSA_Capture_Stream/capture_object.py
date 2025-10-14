@@ -1,9 +1,10 @@
 import sounddevice as sd
+import numpy as np
 import settings
 
 class CaptureObject:
-    def __init__(self, capture_buffer: memoryview | bytearray | bytes, interface: dict[str, int]) -> None:
-        self.stream = sd.RawInputStream(
+    def __init__(self, capture_buffer: np.ndarray, interface: dict[str, int]) -> None:
+        self.stream = sd.InputStream(
             samplerate=settings.sample_rate,
             blocksize=settings.frame_samples,
             device='hw:{},{}'.format(interface["card"], interface["device"]),
@@ -11,7 +12,7 @@ class CaptureObject:
             dtype=settings.frame_format,
             callback=None
         )
-        self.capture_buffer = memoryview(capture_buffer)
+        self.capture_buffer = capture_buffer.view()
 
     def start(self):
         self.stream.start()
@@ -24,7 +25,7 @@ class CaptureObject:
         if (overflowed):
             print("Input overflow (processing is too slow!)")
             raise sd.CallbackAbort
-        self.capture_buffer[:] = indata # type: ignore
+        self.capture_buffer[:] = indata
     
     def __callback__(self, indata, frames: int, time, status: sd.CallbackFlags) -> None:
         if (frames != settings.frame_samples):
@@ -36,4 +37,4 @@ class CaptureObject:
         if (status.input_overflow):
             print("Input overflow (processing is too slow!)")
             raise sd.CallbackAbort
-        self.capture_buffer[:] = indata # type: ignore
+        self.capture_buffer[:] = indata

@@ -3,7 +3,6 @@ import pyogg                    # type: ignore
 from pyogg import OpusEncoder   # type: ignore
 from time import time
 import settings
-import array
 
 class EncoderObject:
     def __init__(self, capture_buffer: memoryview | bytearray | bytes, encoder_buffer: memoryview | bytearray) -> None:
@@ -32,9 +31,7 @@ class EncoderObject:
 
     # Returns a dict packet containing the timestamp (epoch ms after encoding finish), sequence number, and algorithm delay
     def encode(self) -> dict:
-        samples = array.array('h')
-        samples.frombytes(self.capture_buffer)
-        encoded_packet = samples[self.offset::self.splice].tobytes()
+        encoded_packet = self.capture_buffer[self.offset::self.splice].tobytes()
         encoded_packet = bytes(self.encoder.encode(encoded_packet))
         self.encoder_buffer[0:len(encoded_packet)] = encoded_packet
         self.packet_header["packet_length"] = len(encoded_packet)
