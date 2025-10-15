@@ -1,4 +1,5 @@
 .env/
+detections/
 /pycache/*
 **/pycache/*
 .vscode/

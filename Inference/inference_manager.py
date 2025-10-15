@@ -7,6 +7,7 @@ import pygame
 import cv2
 import numpy as np
 import logging
+import datetime
 from .detector import Detector
 from .vision_worker_multiprocess import start_vision_process
 from .audio_worker import run_audio_worker
@@ -37,9 +38,10 @@ class InferenceManager:
         self.vision_inference_on: mp.Event = mp.Event()  # Changed to mp.Event
         self.vision_inference_on.clear()
         self.vision_inference_model_name: str = vision_inference_config.VISION_MODEL_NAME
-        self.previous_bounding_boxes: list = []
         self.annotated_video_queue: mp.Queue = mp.Queue(maxsize=1)  # Changed to mp.Queue
         self.bounding_boxes_queue: mp.Queue = mp.Queue(maxsize=1)  # Changed to mp.Queue
+        self.previous_bounding_boxes: list = []
+        self.previous_inference_timestep: float = datetime.datetime.now().strftime("%H:%M:%S")
 
         # Audio Inference Variables
         self.audio_inference_available: bool = audio_inference_config.AUDIO_INFERENCE_AVAILABLE
@@ -109,6 +111,22 @@ class InferenceManager:
             logging.error(f"Error converting bytes to pygame surface: {e}")
             return None
     
+
+    def get_prev_visual_detections(self):
+        """Get the previous visual detections."""
+        prev_detections = []
+        for detection in self.previous_bounding_boxes:
+            prev_detection = {
+                'timestamp': self.previous_inference_timestep,
+                'animal': detection[0],
+                'type': 'Visual',
+                'confidence': detection[2]
+            }
+            
+            prev_detections.append(prev_detection)
+
+        return prev_detections
+
     def get_vision_inference_frame(self):
         """
         Get the raw frame from the server manager and process it through the vision detector if enabled to return to GUI
@@ -120,6 +138,8 @@ class InferenceManager:
             try:
                 # Get frame data (bytes format from multiprocessing worker)
                 frame_data = self.annotated_video_queue.get_nowait()
+                self.previous_bounding_boxes = self._get_previous_bounding_boxes()
+                self.previous_inference_timestep = datetime.datetime.now().strftime("%H:%M:%S")
                 # Convert bytes back to pygame surface
                 return self._bytes_to_pygame_surface(frame_data)
             except queue.Empty:
@@ -132,10 +152,10 @@ class InferenceManager:
             
     def _get_previous_bounding_boxes(self):
         try:
-            self.previous_bounding_boxes = self.bounding_boxes_queue.get_nowait()
-            return self.previous_bounding_boxes
+            previous_bounding_boxes = self.bounding_boxes_queue.get_nowait()
+            return previous_bounding_boxes
         except queue.Empty:
-            return self.previous_bounding_boxes
+            return previous_bounding_boxes
 
     def toggle_vision_inference(self):
         if self.vision_inference_on.is_set():

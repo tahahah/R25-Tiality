@@ -478,6 +478,7 @@ class ExplorerGUI:
         status_y_position = self.config.SCREEN_HEIGHT - 50
         
         self._draw_connection_status(status_y_position)
+        self._draw_inference_status(status_y_position + 30)
 
     def _draw_connection_status(self, y_position: int) -> None:
         is_connected = (self.connection_status == ConnectionStatus.CONNECTED)
@@ -500,15 +501,12 @@ class ExplorerGUI:
     def _draw_inference_status(self, y_position: int) -> None:
         """Draw model inference status indicator."""
         # Determine status color and text
-        if self.inference_manager is None:
+        if self.inference_manager is None or not self.inference_manager.vision_inference_on.is_set():
             inference_colour = self.colours.RED
-            inference_text = "Inference: NOT AVAILABLE"
+            inference_text = "Inference: Off"
         elif self.inference_manager.vision_inference_on.is_set():
             inference_colour = self.colours.GREEN
             inference_text = "Inference: ON"
-        else:
-            inference_colour = self.colours.YELLOW
-            inference_text = "Inference: OFF"
         
         inference_surface = self.fonts['medium'].render(inference_text, True, inference_colour)
         self.screen.blit(inference_surface, (30, y_position))
@@ -653,7 +651,9 @@ class ExplorerGUI:
             "  Mouse Wheel - Scroll detection history table",
             "  X/C - Control crane servo up/down",
             "  Space - Emergency stop",
-            "  P - Toggle model inference ON/OFF",
+            "  P - Toggle visual model inference ON/OFF",
+            "  V - Append visual detection history",
+            "  S - Save detection history",
             f"  R - Classify last {self.audio_config.AUDIO_CLASSIFICATION_DURATION:.0f} seconds of audio",
             "  TODO: 1, 2 - Toggle cameras",
             "  H - Show/hide this help",
@@ -814,8 +814,12 @@ class ExplorerGUI:
             self.show_help()
         elif key == pygame.K_p:
             self._toggle_vision_inference()
+        elif key == pygame.K_v:
+            self._append_visual_detection_history()
         elif key == pygame.K_r:
             self._handle_classify_audio()
+        elif key == pygame.K_s:
+            self._save_detection_history()
         elif key in (pygame.K_1, pygame.K_2):
             self._handle_camera_toggle(key)
         elif key in (pygame.K_x, pygame.K_c):
@@ -1048,9 +1052,7 @@ class ExplorerGUI:
                     'confidence': result['top_confidence']
                 }
                 self.detection_history.append(detection_record)
-                # Keep only last 10 detections
-                if len(self.detection_history) > 10:
-                    self.detection_history.pop(0)
+
                 # Reset scroll to show newest entries
                 self.detection_table_scroll_offset = 0
                 
@@ -1090,6 +1092,13 @@ class ExplorerGUI:
             logger.error(f"Error in main loop: {e}")
         finally:
             self.cleanup()
+
+    def _append_visual_detection_history(self) -> None:
+        """Append a visual detection result to the detection history."""
+        if not self.detection_history:
+            self.detection_history = []
+
+        self.detection_history.extend(self.inference_manager.get_prev_visual_detections())
 
     def _save_detection_history(self) -> None:
         """Save detection history to a JSON file."""
