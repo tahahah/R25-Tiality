@@ -150,6 +150,14 @@ class UDPAudioReceiver:
         self.packets_dropped = 0
         self.bytes_received = 0
         self.last_sequence_number = -1
+
+        # Direction
+        self.instantaneous_amp = 0.0
+        self.instantaneous_time = 0.0
+        self.buffered_amp = 0.0
+        self.buffered_time = 0.0
+        self.amplitude = 0.0
+        self.amplitude_cutoff = 200
         
         self.decoder = None  # Lazy initialized
         
@@ -250,8 +258,9 @@ class UDPAudioReceiver:
                 
                 # Unpack header
                 sequence_number, timestamp, data_length, \
-                instantaneous_amp, instantaneous_time, buffered_amp, \
-                    buffered_time, amplitude = struct.unpack(
+                self.instantaneous_amp, self.instantaneous_time, \
+                self.buffered_amp, self.buffered_time, \
+                self.amplitude = struct.unpack(
                     self.HEADER_FORMAT, data[:self.HEADER_SIZE]
                 )
 
@@ -344,8 +353,6 @@ class UDPAudioReceiver:
                     for sample in audio_array:
                         self.audio_history.append(sample)
                 
-                # Update GUI if required
-
                 # Queue for playback
                 try:
                     self.playback_queue.put_nowait({
@@ -430,6 +437,13 @@ class UDPAudioReceiver:
             'playback_queue_size': self.playback_queue.qsize(),
             'buffer_duration': buffer_duration
         }
+    
+    def get_direction(self) -> tuple[bool, float]:
+        """Get direction of audio arrival."""
+        if (self.amplitude > self.amplitude_cutoff):
+            return (True, (self.buffered_time + self.buffered_amp)/2)
+        else:
+            return (False, 0.0)
     
     def get_audio_buffer(self, duration: float = 5.0) -> np.ndarray:
         """

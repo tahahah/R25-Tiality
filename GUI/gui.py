@@ -978,6 +978,31 @@ class ExplorerGUI:
             self._publish_robot_motion()
         else:
             self.handle_movement()
+
+        # Update the direction lighting
+        direction = self.get_direction()
+        if (direction):
+            if (direction[0]):
+                if (-157.5 < direction[1] <= -112.5):
+                    self.light_segment('b_right')
+                elif (-112.5 < direction[1] <= -67.5):
+                    self.light_segment('right')
+                elif (-67.5 < direction[1] <= -22.5):
+                    self.light_segment('t_right')
+                elif (-22.5 < direction[1] <= 22.5):
+                    self.light_segment('top')
+                elif (22.5 < direction[1] <= 67.5):
+                    self.light_segment('t_left')
+                elif (67.5 < direction[1] <= 112.5):
+                    self.light_segment('left')
+                elif(112.5 < direction[1] <= 157.2):
+                    self.light_segment('b_left')
+                else:
+                    self.light_segment('down')
+            else:
+                self.light_segment('default')
+        else:
+            self.light_segment('default')
         
         # Check for audio classification results (non-blocking)
         if self.inference_manager.audio_inference_available:
@@ -1093,6 +1118,12 @@ class ExplorerGUI:
         """Get audio streaming statistics."""
         if self.audio_receiver:
             return self.audio_receiver.get_stats()
+        return None
+    
+    def get_direction(self) -> Optional[tuple[bool,float]]:
+        """Get direction of audio arrival."""
+        if self.audio_receiver:
+            return self.audio_receiver.get_direction()
         return None
     
     def get_classification_history(self, limit: int = 10) -> list:
