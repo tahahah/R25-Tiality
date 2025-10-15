@@ -6,6 +6,7 @@ import numpy as np
 import os
 import json
 import datetime
+import threading
 from typing import Callable, Optional, Mapping
 from gui_config import ConnectionStatus, ArmState, Colour, GuiConfig, VisionInferenceConfig, AudioInferenceConfig
 
@@ -286,6 +287,11 @@ class ExplorerGUI:
         self.audio_classification_processing = False
         self.detection_history = []  # List of detection records
         self.detection_table_scroll_offset = 0  # Scroll offset for detection history table
+        
+        # Gemini inference state
+        self.gemini_processing = False
+        self.gemini_result = None
+        self.gemini_thread = None
 
     def _init_inference_manager(self) -> None:
         """Initialize the vision and audio inference manager for model inference."""
@@ -610,6 +616,73 @@ class ExplorerGUI:
     def reset_segment(self) -> None:
         """Reset background to default (no segment lit)."""
         self.light_segment('default')
+    
+    def _draw_gemini_status(self) -> None:
+        """Draw Gemini classification loading animation or result."""
+        if self.gemini_processing:
+            # Draw loading animation
+            # Position: bottom center of screen
+            x_pos = self.config.SCREEN_WIDTH // 2
+            y_pos = self.config.SCREEN_HEIGHT - 100
+            
+            # Animated dots
+            elapsed_time = pygame.time.get_ticks() / 1000.0
+            dot_count = int(elapsed_time * 2) % 4  # Cycle through 0-3 dots
+            loading_text = "Gemini Classifying" + "." * dot_count
+            
+            # Draw semi-transparent background
+            text_surface = self.fonts['large'].render(loading_text, True, self.colours.YELLOW)
+            text_rect = text_surface.get_rect(center=(x_pos, y_pos))
+            
+            # Background box
+            padding = 20
+            bg_rect = pygame.Rect(
+                text_rect.left - padding,
+                text_rect.top - padding,
+                text_rect.width + 2 * padding,
+                text_rect.height + 2 * padding
+            )
+            bg_surface = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+            bg_surface.fill((0, 0, 0, 180))
+            self.screen.blit(bg_surface, bg_rect.topleft)
+            
+            # Draw text
+            self.screen.blit(text_surface, text_rect)
+            
+        elif self.gemini_result is not None:
+            # Draw prediction result overlay on camera feed
+            # Position: overlay on top of camera 1
+            camera_pos = self.camera_positions[0]
+            camera_size = self.camera_target_sizes[0]
+            
+            # Draw full-frame bounding box on camera 1
+            box_rect = pygame.Rect(camera_pos[0], camera_pos[1], camera_size[0], camera_size[1])
+            pygame.draw.rect(self.screen, self.colours.GREEN, box_rect, 3)
+            
+            # Display prediction text at bottom center
+            x_pos = self.config.SCREEN_WIDTH // 2
+            y_pos = self.config.SCREEN_HEIGHT - 100
+            
+            # Get the predicted label
+            predicted_label = self.gemini_result.get('label', 'Unknown')
+            result_text = f"Gemini: {predicted_label}"
+            text_surface = self.fonts['large'].render(result_text, True, self.colours.GREEN)
+            text_rect = text_surface.get_rect(center=(x_pos, y_pos))
+            
+            # Background box
+            padding = 20
+            bg_rect = pygame.Rect(
+                text_rect.left - padding,
+                text_rect.top - padding,
+                text_rect.width + 2 * padding,
+                text_rect.height + 2 * padding
+            )
+            bg_surface = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+            bg_surface.fill((0, 0, 0, 180))
+            self.screen.blit(bg_surface, bg_rect.topleft)
+            
+            # Draw text
+            self.screen.blit(text_surface, text_rect)
 
     def draw_overlays(self) -> None:
         """Draw all interactive overlays on top of the background image."""
@@ -618,6 +691,7 @@ class ExplorerGUI:
         self._draw_status_info()
         self._draw_audio_detection()
         self._draw_detection_history_table()
+        self._draw_gemini_status()
 
 
     # ============================================================================
@@ -655,6 +729,7 @@ class ExplorerGUI:
             "  V - Append visual detection history",
             "  S - Save detection history",
             f"  R - Classify last {self.audio_config.AUDIO_CLASSIFICATION_DURATION:.0f} seconds of audio",
+            "  G - Gemini image classification (one-shot)",
             "  TODO: 1, 2 - Toggle cameras",
             "  H - Show/hide this help",
             "  ESC - Exit",
@@ -820,6 +895,8 @@ class ExplorerGUI:
             self._handle_classify_audio()
         elif key == pygame.K_s:
             self._save_detection_history()
+        elif key == pygame.K_g:
+            self._handle_gemini_classify()
         elif key in (pygame.K_1, pygame.K_2):
             self._handle_camera_toggle(key)
         elif key in (pygame.K_x, pygame.K_c):
@@ -907,6 +984,75 @@ class ExplorerGUI:
         logger.info(f"Requesting audio classification of last {duration:.0f} seconds...")
         self.audio_classification_processing = True
         self.inference_manager.request_audio_classification(duration=duration)
+    
+    def _handle_gemini_classify(self) -> None:
+        """Trigger Gemini classification on current camera frame."""
+        if self.gemini_processing:
+            logger.warning("Gemini classification already in progress")
+            return
+        
+        # Get current camera 1 surface (main camera)
+        camera_surface = self.camera_surfaces[0]
+        if camera_surface is None:
+            logger.warning("No camera frame available for Gemini classification")
+            return
+        
+        # Convert pygame surface to OpenCV format
+        cv_img = self._pygame_surface_to_opencv(camera_surface)
+        if cv_img is None:
+            logger.warning("Failed to convert camera frame for Gemini classification")
+            return
+        
+        # Start processing flag and clear previous result
+        self.gemini_processing = True
+        self.gemini_result = None
+        
+        # Run Gemini classification in separate thread to avoid blocking
+        def gemini_worker():
+            try:
+                logger.info("Gemini worker thread started")
+                
+                # Import detector_gemini here to avoid loading at startup
+                sys.path.insert(0, os.path.join(parent_dir, 'Inference'))
+                from detector_gemini import Detector
+                
+                logger.info("Detector imported, initializing...")
+                
+                # Initialize detector (pass dummy model path)
+                detector = Detector(model_path="dummy.pt")
+                
+                logger.info("Running Gemini detection...")
+                
+                # Run detection
+                bboxes, annotated_img = detector.detect_single_image(cv_img)
+                
+                logger.info(f"Detection complete, extracting label...")
+                
+                # Extract predicted label from detector
+                predicted_label = getattr(detector, 'last_predicted_label', 'Unknown')
+                
+                logger.info(f"Predicted label: {predicted_label}")
+                
+                # Store result
+                self.gemini_result = {
+                    'bboxes': bboxes,
+                    'annotated_img': annotated_img,
+                    'label': predicted_label
+                }
+                
+                logger.info("Gemini classification completed successfully")
+            except Exception as e:
+                import traceback
+                logger.error(f"Gemini classification failed: {e}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                self.gemini_result = None
+            finally:
+                logger.info("Clearing gemini_processing flag")
+                self.gemini_processing = False
+        
+        self.gemini_thread = threading.Thread(target=gemini_worker, daemon=True)
+        self.gemini_thread.start()
+        logger.info("Gemini classification started")
 
     def _toggle_vision_inference(self) -> None:
         """Toggle model inference on/off when 'p' key is pressed."""

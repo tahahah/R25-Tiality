@@ -57,10 +57,13 @@ async def classify_image(image_path):
     response = await client.aio.models.generate_content(
         model="gemini-2.5-pro",
         contents=prompt_parts,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": Classification,
-        },
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=Classification,
+            thinking_config=types.ThinkingConfig(
+                thinking_budget=128  # Lower budget for faster classification (range: 128-32768)
+            )
+        ),
     )
 
     logging.info(f"Received response: {response.text}")
