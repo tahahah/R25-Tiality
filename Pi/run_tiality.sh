@@ -132,7 +132,7 @@ start_gimbal_mqtt() {
 start_audio_stream() {
     echo "Starting Audio Streaming service..."
     cd "$SCRIPT_DIR/../ALSA_Capture_Stream"
-    python3 main.py -c 1 -e 1 -d 3,0 --stream --host "$AUDIO_HOST" --port "$AUDIO_PORT" &
+    python3 main.py -c 4 -e 1 -d 1,0 --stream --host "$AUDIO_HOST" --port "$AUDIO_PORT" &
     AUDIO_PID=$!
     cd "$SCRIPT_DIR"
     echo "Audio Streaming service started with PID $AUDIO_PID."
