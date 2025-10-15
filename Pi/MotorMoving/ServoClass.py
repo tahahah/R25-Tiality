@@ -1,5 +1,9 @@
 from time import sleep
 
+SERVO_FREQ_HZ = 50            # 20 ms period
+SERVO_RANGE   = 20000         # 20,000 steps -> 1 step = 1 µs at 50 Hz
+
+
 # GPIO and pigpio imports with fallbacks
 try:
     import RPi.GPIO as GPIO
@@ -53,7 +57,7 @@ class MockPWM:
         print("Mock PWM: stopped")
 
 class Servo:
-    __servo_pwm_freq = 50
+    __servo_pwm_freq = SERVO_FREQ_HZ
     __min_duty_cycle = 2.5    # 2.5% duty cycle for 0 degrees
     __max_duty_cycle = 12.5   # 12.5% duty cycle for 180 degrees
     min_angle = 0
@@ -134,7 +138,7 @@ class Servo:
                     # Set pin as output and configure PWM
                     self.pi.set_mode(pin, pigpio.OUTPUT)
                     self.pi.set_PWM_frequency(pin, self.__servo_pwm_freq)
-                    self.pi.set_PWM_range(pin, 1000)  # 0.1% resolution
+                    self.pi.set_PWM_range(pin, SERVO_RANGE)  # 0.1% resolution
                     self.pi.set_PWM_dutycycle(pin, 0)  # Start with 0% duty cycle
                     
                 except Exception as e:
