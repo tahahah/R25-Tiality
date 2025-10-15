@@ -60,9 +60,11 @@ def _decode_video_frame_opencv(frame_bytes: bytes) -> np.ndarray:
         # Rotate 180 degrees
         img_bgr = cv2.rotate(img_bgr, cv2.ROTATE_180)
 
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+
         # Keep in BGR format (OpenCV native, expected by YOLO models trained on OpenCV images)
         # Conversion to pygame surface happens in vision_worker
-        return img_bgr
+        return img_rgb
         
     except Exception as e:
         # If any part of the decoding fails (e.g., due to a corrupted frame),
@@ -232,9 +234,17 @@ class ExplorerGUI:
 
     def _init_camera_layout(self) -> None:
         # Camera feed positions (left and right)
+        # Adjusted Camera 1 to fit allocated box within the background
+        # Measured screen coords converted to window-relative: (40, 281)
         self.camera_positions = [
-            (35, 255),   # Camera 1 position (left)
+            (40, 281),   # Camera 1 position (left) - aligned to allocated space
             (450, 170),  # Camera 2 position (right)
+        ]
+
+        # Target sizes for camera feeds (width, height); only Camera 1 adjusted per measurements
+        self.camera_target_sizes = [
+            (705, 318),  # Camera 1 size to fit the allocated box
+            None,        # Camera 2 unchanged
         ]
         
         self.camera_surfaces = [None] * self.config.NUM_CAMERAS
@@ -416,9 +426,26 @@ class ExplorerGUI:
 
     def _draw_single_camera(self, camera_index: int) -> None:
         camera_surface = self.camera_surfaces[camera_index]
-        if camera_surface:
-            camera_position = self.camera_positions[camera_index]
-            self.screen.blit(camera_surface, camera_position)
+        if not camera_surface:
+            return
+
+        camera_position = self.camera_positions[camera_index]
+
+        # If a target size is specified for this camera, scale to fit the allocated box
+        target_size = None
+        try:
+            target_size = self.camera_target_sizes[camera_index]
+        except Exception:
+            target_size = None
+
+        if target_size:
+            try:
+                if camera_surface.get_size() != target_size:
+                    camera_surface = pygame.transform.smoothscale(camera_surface, target_size)
+            except Exception:
+                camera_surface = pygame.transform.scale(camera_surface, target_size)
+
+        self.screen.blit(camera_surface, camera_position)
 
 
 
