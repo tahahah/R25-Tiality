@@ -136,12 +136,14 @@ class UDPAudioReceiver:
         # Processing queues
         self.packet_queue = Queue(maxsize=100)  # Jitter buffer
         self.playback_queue = Queue(maxsize=50)  # Decoded audio buffer
+        self.latency_queue = Queue(maxsize=1000)  # Latency data logging queue
         
         # Threading control
         self.running = False
         self.receive_thread: Optional[threading.Thread] = None
         self.decode_thread: Optional[threading.Thread] = None
         self.playback_thread: Optional[threading.Thread] = None
+        self.latency_thread: Optional[threading.Thread] = None
         
         # Statistics
         self.packets_received = 0
@@ -212,6 +214,10 @@ class UDPAudioReceiver:
             self.playback_thread = threading.Thread(target=self._playback_loop, daemon=True)
             self.playback_thread.start()
         
+        # Start latency logging thread
+        self.latency_thread = threading.Thread(target=self._latency_logging_loop, daemon=True)
+        self.latency_thread.start()
+        
         logger.info("UDP Audio Receiver started")
     
     def stop(self) -> None:
@@ -225,6 +231,8 @@ class UDPAudioReceiver:
             self.decode_thread.join(timeout=1.0)
         if self.playback_thread:
             self.playback_thread.join(timeout=1.0)
+        if self.latency_thread:
+            self.latency_thread.join(timeout=1.0)
         
         logger.info("UDP Audio Receiver stopped")
     
@@ -249,9 +257,16 @@ class UDPAudioReceiver:
                 current_time = time.time()
                 audio_latency = (current_time - timestamp) * 1000  # Convert to ms
                 
-                # Save latency to file
-                with open('audio_latency.txt', 'a') as f:
-                    f.write(f"Seq: {sequence_number}, Latency: {audio_latency:.2f}ms, Timestamp: {timestamp}, Received: {current_time}\n")
+                # Queue latency data for async logging (non-blocking)
+                try:
+                    self.latency_queue.put_nowait({
+                        'sequence_number': sequence_number,
+                        'latency': audio_latency,
+                        'timestamp': timestamp,
+                        'received_time': current_time
+                    })
+                except:
+                    pass  # Queue full, skip this latency sample
                 
                 ### END Latency calculation -- BRANDONS CODE ####
                 
@@ -367,6 +382,32 @@ class UDPAudioReceiver:
         stream.stop()
         stream.close()
         logger.info("Playback loop stopped")
+    
+    def _latency_logging_loop(self) -> None:
+        """Thread loop for writing latency data to file (async to avoid blocking receive)."""
+        logger.info("Latency logging loop started")
+        
+        try:
+            with open('audio_latency.txt', 'a') as f:
+                while self.running:
+                    try:
+                        latency_data = self.latency_queue.get(timeout=0.1)
+                        f.write(
+                            f"Seq: {latency_data['sequence_number']}, "
+                            f"Latency: {latency_data['latency']:.2f}ms, "
+                            f"Timestamp: {latency_data['timestamp']}, "
+                            f"Received: {latency_data['received_time']}\n"
+                        )
+                        f.flush()  # Ensure data is written
+                    except Empty:
+                        continue
+                    except Exception as e:
+                        if self.running:
+                            logger.error(f"Error writing latency data: {e}")
+        except Exception as e:
+            logger.error(f"Failed to open latency log file: {e}")
+        
+        logger.info("Latency logging loop stopped")
     
     def get_stats(self) -> dict:
         """Get receiver statistics."""
