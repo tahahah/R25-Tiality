@@ -8,7 +8,7 @@ import queue
 import time
 import numpy as np
 import cv2
-from .detector import Detector
+from .detector_rfdetr import Detector
 
 
 def _convert_opencv_to_pygame_bytes(opencv_img: np.ndarray) -> tuple:
@@ -95,7 +95,7 @@ def vision_inference_process(
         if inference_on.is_set():
             # Load model if not already loaded
             if not model_loaded:
-                print("[Vision Process] Loading YOLO model...")
+                print("[Vision Process] Loading RF-DETR model...")
                 model_loaded = True
                 vision_detector = Detector(vision_inference_model_name)
                 print("[Vision Process] Model loaded successfully")

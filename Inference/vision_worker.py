@@ -4,7 +4,7 @@ import time
 import pygame
 import numpy as np
 import cv2
-from .detector import Detector
+from .detector_rfdetr import Detector
 
 def _convert_opencv_to_pygame_surface(opencv_img: np.ndarray) -> pygame.Surface:
         """Convert an OpenCV image (BGR format) to a pygame surface for display."""

@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import logging
 import datetime
-from .detector import Detector
+from .detector_rfdetr import Detector
 from .vision_worker_multiprocess import start_vision_process
 from .audio_worker import run_audio_worker
 from .audio_classifier import AudioClassifier
