@@ -133,7 +133,7 @@ if args.stream:
             # Calculate direction (samples method)
             for i in range(1,settings.captured_channels):
                 correlation_array[:,i-1] = np.correlate(capture_buffer[:,0],capture_buffer[:,i], 'full')
-            delay_array = np.argmax(correlation_array[max_lag_idx]) - max_lag
+            delay_array = np.argmax(correlation_array[max_lag_idx,:], axis=0) - max_lag
             if (settings.captured_channels == 4):
                 # Account for the distance between microphones in the four-mic system
                 delay_array[0] = 2*delay_array[0]
