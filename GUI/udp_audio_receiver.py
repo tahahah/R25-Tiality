@@ -88,7 +88,7 @@ class SimpleOpusDecoder:
 
 class UDPAudioReceiver:
     """Receives and plays encoded audio packets via UDP."""
-    HEADER_FORMAT = '!IQH'  # Must match sender: seq_num(4), timestamp(8), data_len(2)
+    HEADER_FORMAT = '!IQHfffff'  # Must match sender: seq_num(4), timestamp(8), data_len(2), instantaneous_amp(4), instantaneous_time(4), buffered_amp(4), buffered_time(4), amplitude(4)
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
     MAX_PACKET_SIZE = 2048
     
@@ -249,7 +249,9 @@ class UDPAudioReceiver:
                     continue
                 
                 # Unpack header
-                sequence_number, timestamp, data_length = struct.unpack(
+                sequence_number, timestamp, data_length, \
+                instantaneous_amp, instantaneous_time, buffered_amp, \
+                    buffered_time, amplitude = struct.unpack(
                     self.HEADER_FORMAT, data[:self.HEADER_SIZE]
                 )
 
@@ -288,6 +290,11 @@ class UDPAudioReceiver:
                     self.packet_queue.put_nowait({
                         'sequence_number': sequence_number,
                         'timestamp': timestamp,
+                        'instantaneous_amp': instantaneous_amp,
+                        'instantaneous_time': instantaneous_time,
+                        'buffered_amp': buffered_amp,
+                        'buffered_time': buffered_time,
+                        'amplitude': amplitude,
                         'data': audio_data
                     })
                     self.packets_received += 1
@@ -337,6 +344,8 @@ class UDPAudioReceiver:
                     for sample in audio_array:
                         self.audio_history.append(sample)
                 
+                # Update GUI if required
+
                 # Queue for playback
                 try:
                     self.playback_queue.put_nowait({
