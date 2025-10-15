@@ -112,7 +112,7 @@ class Servo:
         if PIGPIO_AVAILABLE and hasattr(self, 'pi') and self.pi:
             # Convert duty cycle percentage to pigpio range (0-255 for 8-bit, or use 1000 for 0.1% resolution)
             # Using 1000 range for better precision (0.1% resolution)
-            pwm_value = int(duty_cycle * 10)  # Convert 2.5% to 25, 12.5% to 125
+            pwm_value = int((duty_cycle / 100.0) * SERVO_RANGE)  # 2.5%->500, 7.5%->1500, 12.5%->2500
             self.pi.set_PWM_dutycycle(self.pin, pwm_value)
 
     def __initialise(self, pin):
