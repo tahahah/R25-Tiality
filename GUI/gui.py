@@ -34,16 +34,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def _decode_video_frame_opencv(frame_bytes: bytes) -> pygame.Surface:
+def _decode_video_frame_opencv(frame_bytes: bytes) -> np.ndarray:
     """
-    Decodes a byte array (JPEG) into a Pygame surface using the highly
+    Decodes a byte array (JPEG) into an OpenCV numpy array (BGR format) using the highly
     optimized OpenCV library. This is the recommended, high-performance method.
 
     Args:
         frame_bytes: The raw byte string of a single JPEG image.
 
     Returns:
-        A Pygame.Surface object, or None if decoding fails.
+        A numpy array (BGR format) or None if decoding fails.
     """
     try:
         # 1. Convert the raw byte string to a 1D NumPy array.
@@ -60,11 +60,9 @@ def _decode_video_frame_opencv(frame_bytes: bytes) -> pygame.Surface:
         # Rotate 180 degrees
         img_bgr = cv2.rotate(img_bgr, cv2.ROTATE_180)
 
-        # Convert to RGB for Pygame
-        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-        
-        # Return OpenCV image (BGR format) - conversion to pygame surface happens in vision_worker
-        return img_rgb
+        # Keep in BGR format (OpenCV native, expected by YOLO models trained on OpenCV images)
+        # Conversion to pygame surface happens in vision_worker
+        return img_bgr
         
     except Exception as e:
         # If any part of the decoding fails (e.g., due to a corrupted frame),

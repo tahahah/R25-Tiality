@@ -7,12 +7,12 @@ import cv2
 from .detector import Detector
 
 def _convert_opencv_to_pygame_surface(opencv_img: np.ndarray) -> pygame.Surface:
-        """Convert an OpenCV image to a pygame surface for display."""
+        """Convert an OpenCV image (BGR format) to a pygame surface for display."""
         try:
             # Resize
-            bgr_img = cv2.resize(opencv_img, (510, 230), interpolation=cv2.INTER_AREA)
-            # Convert BGR to RGB
-            rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
+            resized_img = cv2.resize(opencv_img, (510, 230), interpolation=cv2.INTER_AREA)
+            # Convert BGR to RGB (pygame expects RGB)
+            rgb_img = cv2.cvtColor(resized_img, cv2.COLOR_BGR2RGB)
             # Swap axes to get (width, height, channels) format for pygame
             rgb_img = rgb_img.swapaxes(0, 1)
             # Create pygame surface from the RGB array
@@ -81,8 +81,12 @@ def run_vision_worker(inference_on: threading.Event, decoded_video_queue: queue.
                 # The queue was already empty, which is fine.
                 pass
             
-            # Put the new, most recent bounding boxes into the bounding boxesqueue.
-            bounding_boxes_queue.put_nowait(bboxes)
+            # Put the new, most recent bounding boxes into the bounding boxes queue.
+            try:
+                bounding_boxes_queue.put_nowait(bboxes)
+            except queue.Full:
+                # Queue is full, skip this frame
+                pass
         
         if annotated_frame is not None:
             frame_surface = _convert_opencv_to_pygame_surface(annotated_frame)
@@ -90,7 +94,7 @@ def run_vision_worker(inference_on: threading.Event, decoded_video_queue: queue.
             frame_surface = _convert_opencv_to_pygame_surface(decoded_frame)
 
         # Use a "dumping" pattern on the queue to ensure it only holds
-        # the single most recent anonated frame.
+        # the single most recent annotated frame.
         try:
             # Clear any old frame that the GUI hasn't processed yet.
             annotated_video_queue.get_nowait()
@@ -98,8 +102,12 @@ def run_vision_worker(inference_on: threading.Event, decoded_video_queue: queue.
             # The queue was already empty, which is fine.
             pass
         
-        # Put the new, most recent annonated frame into the queue.
-        annotated_video_queue.put_nowait(frame_surface)
+        # Put the new, most recent annotated frame into the queue.
+        try:
+            annotated_video_queue.put_nowait(frame_surface)
+        except queue.Full:
+            # Queue is full, skip this frame
+            pass
             
 
     print("Vision worker ending...")

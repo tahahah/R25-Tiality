@@ -37,9 +37,7 @@ class Detector:
         """
         bboxes = self._get_bounding_boxes(img)
 
-        # Use image directly - no need to copy since we're just annotating it
-
-        # draw bounding boxes on the image
+        # Draw bounding boxes directly on the input image (modified in place)
         for bbox in bboxes:
             label = bbox[0]
             coords = bbox[1]
@@ -54,14 +52,14 @@ class Detector:
 
             # draw bounding box
             color = self.class_colour.get(label, (255, 255, 255))
-            img_out = cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness=2)
+            cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness=2)
 
             # draw class label
             label_text = label if confidence is None else f"{label}: {confidence:.2f}"
-            img_out = cv2.putText(img_out, label_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                                  color, 2)
+            cv2.putText(img, label_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                        color, 2)
 
-        return bboxes, img_out
+        return bboxes, img
 
     def _get_bounding_boxes(self, cv_img):
         """
@@ -82,11 +80,12 @@ class Detector:
         for prediction in predictions:
             boxes = prediction.boxes
             for box in boxes:
-                if box.conf > 0.80:
+                if box.conf > 0.40:
                     # bounding format in [x, y, width, height]
                     box_cord = box.xywh[0]
 
                     box_label = box.cls  # class label of the box
+                    print(f"Box label: {prediction.names[int(box_label)]}")
 
                     bounding_boxes.append([
                         prediction.names[int(box_label)],

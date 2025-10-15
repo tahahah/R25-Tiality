@@ -20,7 +20,5 @@ def main():
     # Start video manager worker function
     pi_video_manager_worker(args.video_server, frame_generator_picamera2)
 
-    
-
 if __name__ == "__main__":
     main()

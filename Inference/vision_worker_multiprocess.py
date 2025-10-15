@@ -13,14 +13,14 @@ from .detector import Detector
 
 def _convert_opencv_to_pygame_bytes(opencv_img: np.ndarray) -> tuple:
     """
-    Convert OpenCV image to bytes that can be sent across process boundary.
+    Convert OpenCV image (BGR format) to bytes that can be sent across process boundary.
     Returns (bytes, shape, dtype) tuple that can be reconstructed into pygame surface.
     """
     try:
         # Resize
-        bgr_img = cv2.resize(opencv_img, (510, 230), interpolation=cv2.INTER_AREA)
-        # Convert BGR to RGB
-        rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
+        resized_img = cv2.resize(opencv_img, (510, 230), interpolation=cv2.INTER_AREA)
+        # Convert BGR to RGB (pygame expects RGB)
+        rgb_img = cv2.cvtColor(resized_img, cv2.COLOR_BGR2RGB)
         # Return as bytes with metadata
         return (rgb_img.tobytes(), rgb_img.shape, rgb_img.dtype.str)
     except Exception as e:
@@ -104,6 +104,7 @@ def vision_inference_process(
             inference_start = time.time()
             bboxes, annotated_frame = vision_detector.detect_single_image(decoded_frame)
             inference_time = time.time() - inference_start
+            print(annotated_frame.shape)
             
             frame_count += 1
             

@@ -4,14 +4,16 @@ import pygame
 import queue
 import io
 import time
+import multiprocessing as mp
 
-def start_decoder_worker(incoming_video_queue: queue.Queue, decoded_video_queue: queue.Queue, decode_video_func, shutdown_event):
+def start_decoder_worker(incoming_video_queue: queue.Queue, decoded_video_queue: mp.Queue, decode_video_func, shutdown_event):
     print("Decoder thread started")
     while not shutdown_event.is_set():
         # Get frame from incoming queue
         try:
             frame_bytes = incoming_video_queue.get_nowait()
         except queue.Empty:
+            time.sleep(0.001)  # Small sleep to avoid CPU spinning
             continue
 
         decoded_frame = decode_video_func(frame_bytes)
@@ -26,6 +28,10 @@ def start_decoder_worker(incoming_video_queue: queue.Queue, decoded_video_queue:
             pass
         
         # Put the new, most recent frame into the queue.
-        decoded_video_queue.put_nowait(decoded_frame)
+        try:
+            decoded_video_queue.put_nowait(decoded_frame)
+        except queue.Full:
+            # Queue is full, skip this frame (next iteration will clear it)
+            pass
     
     print("Decoder thread ending...")

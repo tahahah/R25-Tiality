@@ -1,18 +1,61 @@
 #!/usr/bin/env python3
 """
-Live Webcam Object Detection Test
-Uses the Detector class to perform real-time object detection on webcam feed.
+Live gRPC Video Stream Object Detection Test
+Uses the Detector class to perform real-time object detection on video from gRPC server.
 """
 
 import cv2
 import time
 import argparse
+import os
+import sys
+import numpy as np
 from detector import Detector
+
+# Get the parent directory path
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(parent_dir)
+
+# Now you can import modules from the parent directory
+from tiality_server import TialityServerManager
+
+
+def _decode_video_frame_opencv(frame_bytes: bytes) -> np.ndarray:
+    """
+    Decodes a byte array (JPEG) into an OpenCV numpy array (BGR format).
+    
+    Args:
+        frame_bytes: The raw byte string of a single JPEG image.
+    
+    Returns:
+        A numpy array (BGR format) or None if decoding fails.
+    """
+    try:
+        # Convert the raw byte string to a 1D NumPy array
+        np_array = np.frombuffer(frame_bytes, np.uint8)
+        
+        # Decode the NumPy array into an OpenCV image (BGR format)
+        img = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
+        
+        # Rotate 180 degrees (if needed for your camera)
+        img = cv2.rotate(img, cv2.ROTATE_180)
+        
+        # TEMPORARY DEBUG: Check if JPEG from Pi is actually RGB, not BGR
+        # If colors still look wrong, the Pi might be encoding in RGB format
+        # Convert BGR to RGB (swap red and blue channels)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
+        # Now return as RGB (which YOLO might actually expect if trained on RGB images)
+        return img
+        
+    except Exception as e:
+        print(f"Error decoding frame: {e}")
+        return None
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Live webcam object detection using trained YOLO model"
+        description="Live gRPC video stream object detection using trained YOLO model"
     )
     parser.add_argument(
         '-m', '--model',
@@ -21,22 +64,22 @@ def main():
         help='Model filename (default: Teds_Model.pt)'
     )
     parser.add_argument(
-        '-c', '--camera',
+        '--grpc-port',
         type=int,
-        default=0,
-        help='Camera device index (default: 0)'
+        default=50051,
+        help='gRPC server port (default: 50051)'
     )
     parser.add_argument(
-        '--width',
-        type=int,
-        default=640,
-        help='Camera capture width (default: 640)'
+        '--mqtt-broker',
+        type=str,
+        default='localhost',
+        help='MQTT broker host/IP (default: localhost)'
     )
     parser.add_argument(
-        '--height',
+        '--mqtt-port',
         type=int,
-        default=480,
-        help='Camera capture height (default: 480)'
+        default=1883,
+        help='MQTT broker port (default: 1883)'
     )
     parser.add_argument(
         '--show-fps',
@@ -46,11 +89,11 @@ def main():
     args = parser.parse_args()
 
     print("=" * 50)
-    print("Live Webcam Object Detection")
+    print("Live gRPC Video Stream Object Detection")
     print("=" * 50)
     print(f"Model: {args.model}")
-    print(f"Camera: {args.camera}")
-    print(f"Resolution: {args.width}x{args.height}")
+    print(f"gRPC Port: {args.grpc_port}")
+    print(f"MQTT Broker: {args.mqtt_broker}:{args.mqtt_port}")
     print("\nControls:")
     print("  'q' or ESC - Quit")
     print("  's' - Save current frame")
@@ -65,38 +108,53 @@ def main():
         print(f"✗ Failed to initialize detector: {e}")
         return
 
-    # Initialize webcam
-    print(f"Opening camera {args.camera}...")
-    cap = cv2.VideoCapture(args.camera)
-    
-    if not cap.isOpened():
-        print(f"✗ Failed to open camera {args.camera}")
-        return
-    
-    # Set camera resolution
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
-    
-    actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"✓ Camera opened (actual resolution: {actual_width}x{actual_height})")
-    print("\nStarting detection... Press 'q' to quit\n")
+    # Initialize TialityServerManager
+    print(f"\nInitializing TialityServerManager...")
+    print(f"Waiting for connection from Pi on gRPC port {args.grpc_port}...")
+    server_manager = TialityServerManager(
+        grpc_port=args.grpc_port,
+        mqtt_port=args.mqtt_port,
+        mqtt_broker_host_ip=args.mqtt_broker,
+        decode_video_func=_decode_video_frame_opencv,
+        num_decode_video_workers=1
+    )
+    server_manager.start_servers()
+    print("✓ Server manager started")
+    print("\nWaiting for Pi to connect and start streaming...")
+    print("Starting detection... Press 'q' to quit\n")
 
     # FPS calculation variables
     frame_count = 0
+    total_frame_count = 0
     fps = 0
     fps_update_time = time.time()
     frame_save_count = 0
+    frames_received = 0
+    last_frame_time = time.time()
 
     try:
         while True:
-            # Capture frame
-            ret, frame = cap.read()
+            # Get frame from server manager's decoded video queue
+            frame = server_manager.get_video_frame()
             
-            if not ret:
-                print("✗ Failed to grab frame")
-                break
-
+            if frame is None:
+                # No frame available yet, wait a bit
+                time.sleep(0.01)
+                
+                # Check if we haven't received frames for a while
+                if frames_received > 0 and time.time() - last_frame_time > 5.0:
+                    print("⚠ No frames received for 5 seconds. Connection may be lost.")
+                    last_frame_time = time.time()
+                
+                # Check for quit key even when no frames
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q') or key == 27:
+                    print("\nQuitting...")
+                    break
+                continue
+            
+            frames_received += 1
+            last_frame_time = time.time()
             frame_start_time = time.time()
 
             # Run detection
@@ -135,15 +193,31 @@ def main():
                 (0, 255, 0),
                 2
             )
+            
+            # Add connection status
+            info_y_offset += 30
+            connection_status = "Connected" if server_manager.connection_established_event.is_set() else "Waiting..."
+            cv2.putText(
+                annotated_frame,
+                f"Status: {connection_status}",
+                (10, info_y_offset),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 0) if server_manager.connection_established_event.is_set() else (0, 165, 255),
+                2
+            )
 
             # Print detection info to console
             if bboxes:
                 frame_time = time.time() - frame_start_time
                 detected_classes = [bbox[0] for bbox in bboxes]
-                print(f"Frame {frame_count}: Found {len(bboxes)} object(s) - {detected_classes} ({frame_time:.3f}s)")
+                print(f"Frame {total_frame_count}: Found {len(bboxes)} object(s) - {detected_classes} ({frame_time:.3f}s)")
+            
+            total_frame_count += 1
 
-            # Display frame
-            cv2.imshow('Live Object Detection', annotated_frame)
+            # Convert RGB to BGR for cv2.imshow (since we're now using RGB for inference)
+            display_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
+            cv2.imshow('Live Object Detection - gRPC Stream', display_frame)
 
             # Handle key presses
             key = cv2.waitKey(1) & 0xFF
@@ -153,7 +227,9 @@ def main():
                 break
             elif key == ord('s'):  # Save frame
                 filename = f"detection_frame_{frame_save_count:04d}.jpg"
-                cv2.imwrite(filename, annotated_frame)
+                # Convert RGB to BGR before saving (cv2.imwrite expects BGR)
+                save_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(filename, save_frame)
                 frame_save_count += 1
                 print(f"✓ Saved frame to {filename}")
 
@@ -166,7 +242,9 @@ def main():
     finally:
         # Cleanup
         print("\nCleaning up...")
-        cap.release()
+        print(f"Total frames processed: {total_frame_count}")
+        print(f"Total detections shown: {frames_received}")
+        server_manager.close_servers()
         cv2.destroyAllWindows()
         print("✓ Done")
 

@@ -1,6 +1,7 @@
 import threading
 import queue
 import logging
+import multiprocessing as mp
 from typing import Callable
 from .server_utils import _connection_manager_worker
 
@@ -25,7 +26,12 @@ class TialityServerManager:
 
         # Define shared, thread-safe queues
         self.incoming_video_queue = queue.Queue(maxsize=1)
-        self.decoded_video_queue = queue.Queue(maxsize=1)
+        
+        # Change for MP
+        self.decoded_video_queue = mp.Queue(maxsize=1)
+
+        # Change for threading
+        #self.decoded_video_queue = queue.Queue(maxsize=1)
         self.command_queue = queue.Queue(maxsize=5)  # Increased queue size to prevent dropping
 
         # Change to your Raspberry Pi's IP
