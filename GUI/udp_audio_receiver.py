@@ -88,7 +88,7 @@ class SimpleOpusDecoder:
 
 class UDPAudioReceiver:
     """Receives and plays encoded audio packets via UDP."""
-    HEADER_FORMAT = '!IQHfffff'  # Must match sender: seq_num(4), timestamp(8), data_len(2), instantaneous_amp(4), instantaneous_time(4), buffered_amp(4), buffered_time(4), amplitude(4)
+    HEADER_FORMAT = '!IQH'  # Must match sender: seq_num(4), timestamp(8), data_len(2)
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
     MAX_PACKET_SIZE = 2048
     
@@ -150,14 +150,6 @@ class UDPAudioReceiver:
         self.packets_dropped = 0
         self.bytes_received = 0
         self.last_sequence_number = -1
-
-        # Direction
-        self.instantaneous_amp = 0.0
-        self.instantaneous_time = 0.0
-        self.buffered_amp = 0.0
-        self.buffered_time = 0.0
-        self.amplitude = 0.0
-        self.amplitude_cutoff = 200
         
         self.decoder = None  # Lazy initialized
         
@@ -257,10 +249,7 @@ class UDPAudioReceiver:
                     continue
                 
                 # Unpack header
-                sequence_number, timestamp, data_length, \
-                self.instantaneous_amp, self.instantaneous_time, \
-                self.buffered_amp, self.buffered_time, \
-                self.amplitude = struct.unpack(
+                sequence_number, timestamp, data_length = struct.unpack(
                     self.HEADER_FORMAT, data[:self.HEADER_SIZE]
                 )
 
@@ -299,11 +288,6 @@ class UDPAudioReceiver:
                     self.packet_queue.put_nowait({
                         'sequence_number': sequence_number,
                         'timestamp': timestamp,
-                        'instantaneous_amp': instantaneous_amp,
-                        'instantaneous_time': instantaneous_time,
-                        'buffered_amp': buffered_amp,
-                        'buffered_time': buffered_time,
-                        'amplitude': amplitude,
                         'data': audio_data
                     })
                     self.packets_received += 1
@@ -439,11 +423,7 @@ class UDPAudioReceiver:
         }
     
     def get_direction(self) -> tuple[bool, float]:
-        """Get direction of audio arrival."""
-        if (self.amplitude > self.amplitude_cutoff):
-            return (True, (self.buffered_time + self.buffered_amp)/2)
-        else:
-            return (False, 0.0)
+        return (False, 0.0)
     
     def get_audio_buffer(self, duration: float = 5.0) -> np.ndarray:
         """
