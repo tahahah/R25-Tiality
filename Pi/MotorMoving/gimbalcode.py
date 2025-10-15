@@ -26,7 +26,7 @@ class GimbalController:
         # Initialize servos with different libraries
         self.x_servo = Servo(x_pin, use_pigpio=True)  # X-axis (left/right) - pigpio
         self.y_servo = Servo(y_pin, use_pigpio=True)  # Y-axis (up/down) - pigpio
-        self.c_servo = Servo(c_pin, use_pigpio=False) # Crane servo (up/down) - RPi.GPIO
+        self.c_servo = Servo(c_pin, use_pigpio=True) # Crane servo (up/down) - RPi.GPIO
         self.center_gimbal() #automatic centering
         
     def x_left(self, degrees=10):

@@ -64,7 +64,7 @@ class Servo:
     max_angle = 180
     current_angle = 0
 
-    def __init__(self, pin, use_pigpio=False):
+    def __init__(self, pin, use_pigpio=True):
         self.use_pigpio = use_pigpio
         self.__initialise(pin)
 
