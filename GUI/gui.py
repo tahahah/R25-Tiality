@@ -54,7 +54,8 @@ def _decode_video_frame_opencv(frame_bytes: bytes) -> pygame.Surface:
         #    This is the core, high-speed decoding step. The result is in BGR format.
         img_bgr = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
         
-        img_bgr = cv2.resize(img_bgr, (510, 230), interpolation=cv2.INTER_AREA)
+        # No longer resizing for no reason
+        #img_bgr = cv2.resize(img_bgr, (510, 230), interpolation=cv2.INTER_AREA)
         
         # Rotate 180 degrees
         img_bgr = cv2.rotate(img_bgr, cv2.ROTATE_180)

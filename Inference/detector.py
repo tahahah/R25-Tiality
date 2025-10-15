@@ -2,7 +2,6 @@ import cv2
 import os
 import numpy as np
 import sys
-from copy import deepcopy
 from ultralytics import YOLO
 from ultralytics.utils import ops
 
@@ -38,7 +37,7 @@ class Detector:
         """
         bboxes = self._get_bounding_boxes(img)
 
-        img_out = deepcopy(img)
+        # Use image directly - no need to copy since we're just annotating it
 
         # draw bounding boxes on the image
         for bbox in bboxes:
@@ -55,7 +54,7 @@ class Detector:
 
             # draw bounding box
             color = self.class_colour.get(label, (255, 255, 255))
-            img_out = cv2.rectangle(img_out, (x1, y1), (x2, y2), color, thickness=2)
+            img_out = cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness=2)
 
             # draw class label
             label_text = label if confidence is None else f"{label}: {confidence:.2f}"
@@ -76,7 +75,7 @@ class Detector:
         """
 
         # predict target type and bounding box with your trained YOLO
-        predictions = self.model.predict(cv_img, imgsz=320, verbose=False)
+        predictions = self.model.predict(cv_img, imgsz=640, verbose=False, device="mps")
 
         # get bounding box and class label for target(s) detected
         bounding_boxes = []
@@ -91,7 +90,7 @@ class Detector:
 
                     bounding_boxes.append([
                         prediction.names[int(box_label)],
-                        np.asarray(box_cord),
+                        np.asarray(box_cord.cpu()),  # Move tensor to CPU before converting to numpy
                         float(box.conf)
                     ])
 

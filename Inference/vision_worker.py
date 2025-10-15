@@ -9,8 +9,10 @@ from .detector import Detector
 def _convert_opencv_to_pygame_surface(opencv_img: np.ndarray) -> pygame.Surface:
         """Convert an OpenCV image to a pygame surface for display."""
         try:
+            # Resize
+            bgr_img = cv2.resize(opencv_img, (510, 230), interpolation=cv2.INTER_AREA)
             # Convert BGR to RGB
-            rgb_img = cv2.cvtColor(opencv_img, cv2.COLOR_BGR2RGB)
+            rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
             # Swap axes to get (width, height, channels) format for pygame
             rgb_img = rgb_img.swapaxes(0, 1)
             # Create pygame surface from the RGB array
@@ -40,11 +42,21 @@ def run_vision_worker(inference_on: threading.Event, decoded_video_queue: queue.
     
     # Constant loop until shutdown event is set
     while not shutdown_event.is_set():
-        # Get the most recent decoded frame
+        # Get the most recent decoded frame (skip old frames if multiple are queued)
         decoded_frame = None
         try:
-            decoded_frame = decoded_video_queue.get_nowait()
-        except queue.Empty:
+            # Keep pulling frames until we get the most recent one
+            while True:
+                try:
+                    decoded_frame = decoded_video_queue.get_nowait()
+                except queue.Empty:
+                    break
+        except Exception:
+            pass
+        
+        # If no frame available, sleep briefly and continue
+        if decoded_frame is None:
+            time.sleep(0.001)  # Small sleep to avoid CPU spinning
             continue
 
         # If inference is on, run inference and get annotated frame and bounding boxes
