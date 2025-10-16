@@ -1,4 +1,5 @@
 .env/
+detections/
 /pycache/*
 **/pycache/*
 .vscode/
@@ -14,3 +15,8 @@
 *.pyzwzw
 *.cpython-310.pyc
 Pi/.venv_pi/
+.venv*
+.target_pi_ip
+
+# Detection history files
+detections/

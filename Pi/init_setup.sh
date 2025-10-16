@@ -9,13 +9,24 @@
 
 set -e
 
+# Use /var/tmp for temporary build files to avoid RAM-limited /tmp
+echo "--- Setting default temporary directory to /var/tmp ---"
+export TMPDIR="/var/tmp"
+export TEMP="/var/tmp"
+export TMP="/var/tmp"
+
 # Resolve the directory of this script so paths work regardless of CWD (POSIX)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv_pi"
 
 echo "--- Installing system packages (requires sudo) ---"
 sudo apt update
-sudo apt install -y python3-picamera2 python3-opencv python3-numpy --no-install-recommends
+sudo apt install -y python3-picamera2 python3-opencv python3-numpy \
+    libportaudio2 portaudio19-dev \
+    libopus0 libopusfile0 libopusenc0 \
+    libogg0 libvorbis0a libvorbisfile3 libvorbisenc2 \
+    pigpiod python3-pigpio \
+     --no-install-recommends
 
 echo "--- Creating virtual environment with system site packages ---"
 if [ -d "$VENV_DIR" ]; then
@@ -28,7 +39,22 @@ python3 -m venv "$VENV_DIR" --system-site-packages
 echo "--- Installing Python packages into the venv ---"
 # Intentionally omit numpy/opencv to avoid conflicts; rely on system packages
 pip install --upgrade pip
-pip install paho-mqtt pyserial RPi.GPIO aiortc av grpcio grpcio-tools protobuf pillow pygame
+pip install -r "$SCRIPT_DIR/requirements.txt"
+
+cd ..
+pwd
+cd ALSA_Capture_Stream
+echo "--- Installing ALSA_Capture_Stream dependencies ---"
+pwd
+pip install -r "requirements.txt"
+cd "$SCRIPT_DIR"
+
+
+echo "--- Starting pigpio daemon ---"
+sudo systemctl enable pigpiod
+sudo systemctl start pigpiod
+echo "pigpio daemon started and enabled for auto-start"
+
 
 echo "--- Verifying picamera2 availability ---"
 if python3 -c "from picamera2 import Picamera2" 2>/dev/null; then
@@ -40,4 +66,3 @@ fi
 echo
 echo "Initialization complete. To run services, use:"
 echo "  ./run_tiality.sh"
-

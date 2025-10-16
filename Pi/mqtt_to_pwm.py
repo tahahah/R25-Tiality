@@ -16,7 +16,7 @@ except RuntimeError:
 # ---------------- Configuration ----------------
 # BCM pin numbers
 ENABLE_PINS: List[int] = [22, 27, 19, 26]
-INPUT_PINS: List[int] = [2, 3, 4, 17, 6, 13, 5, 11]  # 8 pins -> 4 pairs
+INPUT_PINS: List[int] = [3, 2, 17, 4, 13, 6, 11, 5]  # 8 pins -> 4 pairs, the front two are flipped.
 PWM_FREQUENCY_HZ = 1000
 DEFAULT_RAMP_MS = 2000
 
@@ -24,8 +24,8 @@ DEFAULT_RAMP_MS = 2000
 # Adjust these values to make the robot move in a straight line
 # Values < 1.0 reduce motor speed, > 1.0 increase motor speed
 MOTOR_COMPENSATION = {
-    "forward": [1.0, 0.85, 1.0, 0.85],  # [motor1, motor2, motor3, motor4]
-    "reverse": [1.0, 0.85, 1.0, 0.85],  # Adjust these based on testing
+    "forward": [1.0, 1.0, 1.0, 1.0],  # [motor1, motor2, motor3, motor4]
+    "reverse": [1.0, 1.0, 1.0, 1.0],  # Adjust these based on testing
 }
 
 # Wheel layout mapping and polarity for mecanum/omni drive
@@ -124,31 +124,30 @@ class MotorController:
             m.set_duty(comp_speed)
 
     def set_vector(self, vx: float, vy: float, omega: float = 0.0):
-        """Mecanum mixing for true crab-walk (lateral) and forward motion.
+        """Skid-steer mixing for forward/backward and rotational movement.
         Inputs are percentages in range [-100..100].
           - vy: forward is positive
-          - vx: right (lateral) is positive
-          - omega: rotate clockwise is positive (optional; default 0)
+          - omega: rotate clockwise is positive
+          - vx: lateral (strafe) movement, is ignored for this drive type.
 
-        Standard mecanum formula (see referenced blog):
-          FL = vy + vx + omega
-          FR = vy - vx - omega
-          RL = vy - vx + omega
-          RR = vy + vx - omega
+        Skid-steer (tank-style) formula:
+          Left_Wheels  = vy + omega
+          Right_Wheels = vy - omega
 
         Results are then mapped through MOTOR_ORDER and MOTOR_POLARITY to match wiring.
         """
         # Clamp inputs
-        vx = max(-100.0, min(100.0, float(vx)))
+        # vx is ignored in this configuration
         vy = max(-100.0, min(100.0, float(vy)))
         omega = max(-100.0, min(100.0, float(omega)))
 
-        # Compute theoretical wheel commands in [FL, FR, RL, RR]
+        # Compute theoretical wheel commands using skid-steer logic
+        # [FL, FR, RL, RR]
         wheel_cmds = [
-            vy + vx + omega,  # FL
-            vy - vx - omega,  # FR
-            vy - vx + omega,  # RL
-            vy + vx - omega,  # RR
+            vy + omega,  # FL (Left wheel)
+            vy - omega,  # FR (Right wheel)
+            vy + omega,  # RL (Left wheel)
+            vy - omega,  # RR (Right wheel)
         ]
 
         # Normalize to keep within [-100, 100]
@@ -158,8 +157,39 @@ class MotorController:
             wheel_cmds = [val * scale for val in wheel_cmds]
 
         logging.debug(
-            "Mecanum mix (vx=%.1f, vy=%.1f, w=%.1f) -> FL=%.1f FR=%.1f RL=%.1f RR=%.1f",
-            vx, vy, omega, wheel_cmds[0], wheel_cmds[1], wheel_cmds[2], wheel_cmds[3]
+            "Skid-steer mix (vy=%.1f, w=%.1f) -> FL=%.1f FR=%.1f RL=%.1f RR=%.1f",
+            vy, omega, wheel_cmds[0], wheel_cmds[1], wheel_cmds[2], wheel_cmds[3]
+        )
+
+        # Apply mapping to physical motors and compensation/polarity
+        for pos_idx, base_cmd in enumerate(wheel_cmds):
+            motor_idx = MOTOR_ORDER[pos_idx]
+            m = self.motors[motor_idx]
+            cmd = base_cmd * (1 if MOTOR_POLARITY[pos_idx] >= 0 else -1)
+            direction = "forward" if cmd >= 0 else "reverse"
+            comp = MOTOR_COMPENSATION.get(direction, [1.0, 1.0, 1.0, 1.0])[motor_idx]
+            m.set_direction(direction)
+            m.set_duty(abs(cmd) * comp)
+
+    def set_front_back(self, vy_front: float = 0.0, vy_back: float = 0.0):
+        """Drive front and back wheel pairs independently using forward components only.
+
+        Inputs are percentages in range [-100..100].
+          - vy_front controls FL and FR
+          - vy_back controls RL and RR
+
+        This ignores lateral (vx) and rotational (omega) components by design.
+        """
+        # Clamp inputs
+        vy_front = max(-100.0, min(100.0, float(vy_front)))
+        vy_back = max(-100.0, min(100.0, float(vy_back)))
+
+        # Commands mapped in logical order [FL, FR, RL, RR]
+        wheel_cmds = [vy_front, vy_front, vy_back, vy_back]
+
+        logging.debug(
+            "Front/Back mix (vy_front=%.1f, vy_back=%.1f) -> FL=%.1f FR=%.1f RL=%.1f RR=%.1f",
+            vy_front, vy_back, wheel_cmds[0], wheel_cmds[1], wheel_cmds[2], wheel_cmds[3]
         )
 
         # Apply mapping to physical motors and compensation/polarity
@@ -221,7 +251,13 @@ def parse_command(payload: str):
       {"type":"all","action":"stop"}
       {"type":"all","action":"set","direction":"reverse","speed":50}
       {"type":"vector","action":"set","vx":25,"vy":-40}
+      {"type":"vector","action":"set","vy_front":50,"vy_back":-20}
       {"type":"config","action":"set_compensation","direction":"forward","factors":[1.0, 0.8, 1.0, 0.8]}
+    Behavior notes:
+      - If either "vy_front" or "vy_back" is present in a vector command and at least
+        one is non-zero, those values control the front (FL/FR) and back (RL/RR) pairs
+        respectively. All other vector inputs ("vx", "vy", "omega"/"w") are ignored for
+        that command. Any missing pair defaults to 0.
     Fallback key names (non-JSON): 'up' -> forward spool, 'down' -> reverse spool, 'space' -> stop
     """
     payload = payload.strip()
@@ -267,6 +303,14 @@ def handle_command(ctrl: MotorController, cmd: dict, client: mqtt.Client):
             return
     elif t == "vector":
         if action == "set":
+            # Independent front/back takes precedence only when at least one is non-zero
+            has_vy_front = ("vy_front" in cmd)
+            has_vy_back = ("vy_back" in cmd)
+            vy_front = float(cmd.get("vy_front", 0))
+            vy_back = float(cmd.get("vy_back", 0))
+            if (has_vy_front or has_vy_back) and ((vy_front != 0.0) or (vy_back != 0.0)):
+                ctrl.set_front_back(vy_front, vy_back)
+                return
             vx = float(cmd.get("vx", 0))
             vy = float(cmd.get("vy", 0))
             omega = float(cmd.get("w", cmd.get("omega", 0)))

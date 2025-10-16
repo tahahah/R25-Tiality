@@ -5,7 +5,6 @@ Contains the core configuration classes and enums for the Wildlife Explorer GUI.
 """
 from enum import Enum
 from dataclasses import dataclass
-from typing import Tuple
 
 class ConnectionStatus(Enum):
     """Connection status enumeration."""
@@ -18,6 +17,19 @@ class ArmState(Enum):
     """Arm position state enumeration."""
     EXTENDED = "EXTENDED"
     RETRACTED = "RETRACTED"
+
+@dataclass
+class VisionInferenceConfig:
+    """Vision inference state."""
+    VISION_INFERENCE_AVAILABLE: bool = True
+    VISION_MODEL_NAME: str = "rfdetr_4191_checkpoint_best_total_1.pth"
+
+@dataclass
+class AudioInferenceConfig:
+    """Audio inference state."""
+    AUDIO_INFERENCE_AVAILABLE: bool = True
+    AUDIO_MODEL_NAME: str = "audio_weights.ckpt"
+    AUDIO_CLASSIFICATION_DURATION: float = 5.0  # seconds of audio to classify
 
 
 @dataclass
