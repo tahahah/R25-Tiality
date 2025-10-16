@@ -15,7 +15,7 @@ if MODEL_DIR not in sys.path:
 from gemini_classify import classify_image
 
 
-class Detector:
+class GeminiDetector:
     def __init__(self, model_path):
         # Gemini-based classifier does not require a YOLO model; keep signature for parity
         self.class_colour = {

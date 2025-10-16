@@ -1014,12 +1014,12 @@ class ExplorerGUI:
                 
                 # Import detector_gemini here to avoid loading at startup
                 sys.path.insert(0, os.path.join(parent_dir, 'Inference'))
-                from detector_gemini import Detector
+                from detector_gemini import GeminiDetector
                 
                 logger.info("Detector imported, initializing...")
                 
                 # Initialize detector (pass dummy model path)
-                detector = Detector(model_path="dummy.pt")
+                detector = GeminiDetector(model_path="dummy.pt")
                 
                 logger.info("Running Gemini detection...")
                 

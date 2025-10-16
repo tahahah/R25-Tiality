@@ -151,11 +151,12 @@ class InferenceManager:
             return None
             
     def _get_previous_bounding_boxes(self):
+        previous_bounding_boxes = self.previous_bounding_boxes
         try:
             previous_bounding_boxes = self.bounding_boxes_queue.get_nowait()
             return previous_bounding_boxes
         except queue.Empty:
-            return self.previous_bounding_boxes
+            return previous_bounding_boxes
 
     def toggle_vision_inference(self):
         if self.vision_inference_on.is_set():
