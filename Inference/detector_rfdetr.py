@@ -43,7 +43,8 @@ class Detector:
     def detect_single_image(self, img):
         """
         Detect targets in an image.
-        Returns (bboxes_xywh, annotated_image) matching YOLO format
+        Returns (bboxes, annotated_image) matching YOLO format
+        bboxes format: list of [animal_name, [x,y,w,h], confidence]
         """
         # Resize for inference
         inference_img = cv2.resize(img, self.inference_size, interpolation=cv2.INTER_LINEAR)
@@ -64,7 +65,15 @@ class Detector:
         # Annotate frame
         annotated_img = self._annotate_frame(img, detections)
         
-        return bboxes_xywh, annotated_img
+        # Format bboxes as list of [animal_name, [x,y,w,h], confidence]
+        bboxes = []
+        if len(detections.xyxy) > 0:
+            for class_id, confidence, xywh in zip(detections.class_id, detections.confidence, bboxes_xywh):
+                animal_name = CUSTOM_CLASSES[class_id]
+                bbox_coords = xywh.tolist()
+                bboxes.append([animal_name, bbox_coords, float(confidence)])
+        
+        return bboxes, annotated_img
 
     def _xyxy_to_xywh(self, xyxy):
         """Convert xyxy format to xywh (center_x, center_y, width, height)"""

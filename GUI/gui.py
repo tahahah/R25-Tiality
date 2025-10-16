@@ -1,3 +1,4 @@
+import traceback
 import pygame
 import sys
 import logging
@@ -147,7 +148,7 @@ class ExplorerGUI:
                 self.audio_receiver.start()
                 logger.info(f"Audio streaming on port {audio_port} (buffer: {audio_config.AUDIO_CLASSIFICATION_DURATION}s)")
             except Exception as e:
-                logger.error(f"Audio receiver failed: {e}")
+                logger.error(f"Audio receiver failed: {e}\n{traceback.format_exc()}")
                 self.audio_receiver = None
         elif self.audio_enabled:
             logger.warning("Audio dependencies missing")
@@ -321,7 +322,7 @@ class ExplorerGUI:
             bgr_array = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
             return bgr_array
         except Exception as e:
-            logger.error(f"Error converting pygame surface to OpenCV: {e}")
+            logger.error(f"Error converting pygame surface to OpenCV: {e}\n{traceback.format_exc()}")
             return None
 
     def _opencv_to_pygame_surface(self, opencv_img: np.ndarray) -> Optional[pygame.Surface]:
@@ -1043,7 +1044,7 @@ class ExplorerGUI:
                 logger.info("Gemini classification completed successfully")
             except Exception as e:
                 import traceback
-                logger.error(f"Gemini classification failed: {e}")
+                logger.error(f"Gemini classification failed: {e}\n{traceback.format_exc()}")
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 self.gemini_result = None
             finally:
@@ -1244,7 +1245,9 @@ class ExplorerGUI:
         if not self.detection_history:
             self.detection_history = []
 
-        self.detection_history.extend(self.inference_manager.get_prev_visual_detections())
+        prev_detections = self.inference_manager.get_prev_visual_detections()
+        print(f"============== Previous detections: {prev_detections}")
+        self.detection_history.extend(prev_detections)
 
     def _save_detection_history(self) -> None:
         """Save detection history to a JSON file."""
@@ -1268,7 +1271,8 @@ class ExplorerGUI:
             logger.info(f"Detection history saved to {filename} ({len(self.detection_history)} records)")
             print(f"\nDetection history saved to {filename}")
         except Exception as e:
-            logger.error(f"Failed to save detection history: {e}")
+            import traceback
+            logger.error(f"Failed to save detection history: {e}\n{traceback.format_exc()}")
 
     def cleanup(self) -> None:
         """Clean up resources before exit."""

@@ -16,7 +16,7 @@ except RuntimeError:
 # ---------------- Configuration ----------------
 # BCM pin numbers
 ENABLE_PINS: List[int] = [22, 27, 19, 26]
-INPUT_PINS: List[int] = [2, 3, 4, 17, 13, 6, 11, 5]  # 8 pins -> 4 pairs, the front two are flipped.
+INPUT_PINS: List[int] = [3, 2, 17, 4, 13, 6, 11, 5]  # 8 pins -> 4 pairs, the front two are flipped.
 PWM_FREQUENCY_HZ = 1000
 DEFAULT_RAMP_MS = 2000
 
@@ -24,8 +24,8 @@ DEFAULT_RAMP_MS = 2000
 # Adjust these values to make the robot move in a straight line
 # Values < 1.0 reduce motor speed, > 1.0 increase motor speed
 MOTOR_COMPENSATION = {
-    "forward": [1.0, 0.85, 1.0, 0.85],  # [motor1, motor2, motor3, motor4]
-    "reverse": [1.0, 0.85, 1.0, 0.85],  # Adjust these based on testing
+    "forward": [1.0, 1.0, 1.0, 1.0],  # [motor1, motor2, motor3, motor4]
+    "reverse": [1.0, 1.0, 1.0, 1.0],  # Adjust these based on testing
 }
 
 # Wheel layout mapping and polarity for mecanum/omni drive
