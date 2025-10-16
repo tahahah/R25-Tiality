@@ -25,9 +25,15 @@ logger = logging.getLogger(__name__)
 class ConvAudioClassifier(nn.Module):
     """4-layer CNN for audio classification from mel spectrograms."""
     
-    def __init__(self, num_classes: int, n_mels: int = 64):
+    def __init__(self, num_classes: int, n_mels: int = 64, overfit_mode: bool = False):
         super().__init__()
-        c1, c2, c3, c4 = 32, 64, 128, 256
+        
+        if overfit_mode: 
+            c1, c2, c3, c4 = 32, 64, 128, 256
+            hidden_dim = 256
+        else: 
+            c1, c2, c3, c4 = 16, 32, 64, 128
+            hidden_dim = 64
         
         self.conv_block = nn.Sequential(
             nn.Conv2d(1, c1, kernel_size=(3,3), padding=(1,1)),
@@ -52,9 +58,9 @@ class ConvAudioClassifier(nn.Module):
         )
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(c4, 256),
+            nn.Linear(c4, hidden_dim),
             nn.ReLU(),
-            nn.Linear(256, num_classes)
+            nn.Linear(hidden_dim, num_classes)
         )
     
     def forward(self, x):
