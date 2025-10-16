@@ -117,7 +117,7 @@ if args.stream:
                 direction_amp *= (180/np.pi)
                 if direction_amp < -180: direction_amp += 360
             else:
-                direction_amp = 90 if (loudest_index[0] == 0) else -90
+                direction_amp = 90.0 if (loudest_index[0] == 0) else -90.0
 
             # Calculate direction (samples method)
             for i in range(1,settings.captured_channels):
@@ -132,12 +132,12 @@ if args.stream:
                 direction_time *= (180/np.pi)
                 if direction_time < -180: direction_time += 360
             else:
-                direction_time = 90 if (delay_array < 0) else -90
+                direction_time = 90.0 if (delay_array < 0) else -90.0
 
             # Add information to header
-            #header["direction_amp"] = direction_amp
-            #header["direction_time"] = direction_time
-            #header["amplitude"] = np.mean(amplitude_array)
+            header["direction_amp"] = direction_amp
+            header["direction_time"] = direction_time
+            header["amplitude"] = float(np.mean(amplitude_array))
             
             # Send encoded audio via UDP
             audio_data = bytes(encoder_buffer[:header["packet_length"]])

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class UDPAudioSender:
     """Sends encoded audio packets via UDP for low-latency streaming."""
-    HEADER_FORMAT = '!IQH'  # seq_num(4), timestamp(8), data_len(2)
+    HEADER_FORMAT = '!IQHfff'  # seq_num(4), timestamp(8), data_len(2), direction_amp(4), direction_time(4), amplitude(4)
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
     MAX_UDP_PACKET_SIZE = 1400  # Avoid UDP fragmentation (MTU ~1500)
     
@@ -60,6 +60,9 @@ class UDPAudioSender:
             sequence_number = header.get('sequence_number', 0)
             timestamp = header.get('timestamp', 0)
             data_length = len(audio_data)
+            direction_amp = header.get('direction_amp', 0.0)
+            direction_time = header.get('direction_time', 0.0)
+            amplitude = header.get('amplitude', 0.0)
             
             # Truncate if packet too large
             total_size = self.HEADER_SIZE + data_length
@@ -74,7 +77,10 @@ class UDPAudioSender:
                 self.HEADER_FORMAT,
                 sequence_number,
                 timestamp,
-                data_length
+                data_length,
+                direction_amp,
+                direction_time,
+                amplitude
             ) + audio_data
             
             self.socket.sendto(packet, (self.target_host, self.target_port))

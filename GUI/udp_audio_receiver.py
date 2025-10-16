@@ -88,7 +88,7 @@ class SimpleOpusDecoder:
 
 class UDPAudioReceiver:
     """Receives and plays encoded audio packets via UDP."""
-    HEADER_FORMAT = '!IQH'  # Must match sender: seq_num(4), timestamp(8), data_len(2)
+    HEADER_FORMAT = '!IQHfff'  # Must match sender: seq_num(4), timestamp(8), data_len(2)
     HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
     MAX_PACKET_SIZE = 2048
     
@@ -150,6 +150,12 @@ class UDPAudioReceiver:
         self.packets_dropped = 0
         self.bytes_received = 0
         self.last_sequence_number = -1
+
+        # Direction
+        self.direction_amp = 0.0
+        self.direction_time = 0.0
+        self.amplitude = 0.0
+        self.amplitude_cutoff = 200
         
         self.decoder = None  # Lazy initialized
         
@@ -249,7 +255,8 @@ class UDPAudioReceiver:
                     continue
                 
                 # Unpack header
-                sequence_number, timestamp, data_length = struct.unpack(
+                sequence_number, timestamp, data_length, \
+                self.direction_amp, self.direction_time, self.amplitude = struct.unpack(
                     self.HEADER_FORMAT, data[:self.HEADER_SIZE]
                 )
 
@@ -423,7 +430,11 @@ class UDPAudioReceiver:
         }
     
     def get_direction(self) -> tuple[bool, float]:
-        return (False, 0.0)
+        """Get direction of audio arrival."""
+        if (self.amplitude > self.amplitude_cutoff):
+            return (True, (self.direction_time + self.direction_amp)/2)
+        else:
+            return (False, 0.0)
     
     def get_audio_buffer(self, duration: float = 5.0) -> np.ndarray:
         """
