@@ -3,6 +3,7 @@ import argparse
 import sounddevice as sd
 import numpy as np
 from time import time
+from math import atan2
 from queue import Queue
 from copy import deepcopy
 from capture_object import CaptureObject
@@ -59,21 +60,15 @@ capture_buffer = np.ndarray((settings.frame_samples, settings.captured_channels)
 encoder_buffer = bytearray(settings.frame_bytes * settings.encoded_channels)
 
 # Create data storage for direction sensing
-correlation_array = np.zeros((2*settings.frame_samples-1, settings.captured_channels - 1), dtype=np.int16)
-lags_array = np.arange(-settings.frame_samples+1, settings.frame_samples)
 max_lag = 20
-max_lag_array = np.arange(-max_lag,max_lag+1)
-max_lag_idx = max_lag_array + (settings.frame_samples-1)
-direction_time_buffer = np.zeros((50), dtype=np.float32) # A one-second buffer of previous direction guesses with the time algo
-direction_amp_buffer = np.zeros((50), dtype=np.float32)  # Analogous buffer for the amplitude algo
-sig_amplitude_buffer = np.zeros((50), dtype=np.float32)  # Analogous buffer for the total signal amplitude
-buffer_pointer = 0
+max_lag_array = np.arange(-max_lag,max_lag+1, dtype=np.int16)
+max_lag_idx = max_lag_array + (settings.frame_samples//2-1)
+correlation_array = np.zeros((max_lag*4+1, settings.captured_channels - 1), dtype=np.int16)
 
 packet_queue = Queue(settings.queue_size)  # 100-packet FIFO (2 seconds @ 20ms frames)
 
 # Initialize audio processing objects
 capture = CaptureObject(capture_buffer, interface)
-capture.start()
 encoder = EncoderObject(capture_buffer.data, encoder_buffer)
 decoder = DecoderObject()
 
@@ -85,8 +80,6 @@ if args.stream:
 
 record_start_time = time()
 record_duration = args.duration
-display_start_time = time()
-display_interval = 0.5
 
 print(f"""
 ==================
@@ -102,6 +95,7 @@ Encode channels:   {settings.encoded_channels}
 Save to file:      {args.save if args.save else 'No'}
 """)
 
+capture.start()
 if args.stream:
     print(f"Streaming to {args.host}:{args.port}...")
     print("Press Ctrl+C to stop")
@@ -111,61 +105,39 @@ if args.stream:
 
             # Start timer
             packet_start_time = time()
-            encoding_start_time = time()
 
             # Encode buffer
             header = encoder.encode()
 
-            # Stop encoder time, start directional time
-            encoding_duration = time() - encoding_start_time
-            direction_start_time = time()
-
             # Calculate direction (amplitude method)
-            # amplitude_array = np.sqrt(np.mean(capture_buffer.astype(np.int32)**2, axis=0))
-            # loudest_index = np.argsort(amplitude_array)[::-1]
-            # if (settings.captured_channels == 4):
-            #     direction_amp_buffer[buffer_pointer] = np.atan2(amplitude_array[1]-amplitude_array[2],amplitude_array[3]-amplitude_array[0])-(np.pi/4)-(np.pi/2)
-            #     direction_amp_buffer[buffer_pointer] *= (180/np.pi)
-            #     if direction_amp_buffer[buffer_pointer] < -180: direction_amp_buffer[buffer_pointer] += 360
-            # else:
-            #     direction_amp_buffer[buffer_pointer] = 90 if (loudest_index[0] == 0) else -90
+            amplitude_array = np.sqrt(np.mean(capture_buffer.astype(np.int32)**2, axis=0))
+            loudest_index = np.argsort(amplitude_array)[::-1]
+            if (settings.captured_channels == 4):
+                direction_amp = atan2(amplitude_array[1]-amplitude_array[2],amplitude_array[3]-amplitude_array[0])-(np.pi/4)-(np.pi/2)
+                direction_amp *= (180/np.pi)
+                if direction_amp < -180: direction_amp += 360
+            else:
+                direction_amp = 90 if (loudest_index[0] == 0) else -90
 
             # Calculate direction (samples method)
-            # for i in range(1,settings.captured_channels):
-            #     correlation_array[:,i-1] = np.correlate(capture_buffer[:,0],capture_buffer[:,i], 'full')
-            # delay_array = np.argmax(correlation_array[max_lag_idx,:], axis=0) - max_lag
-            # if (settings.captured_channels == 4):
-            #     # Account for the distance between microphones in the four-mic system
-            #     delay_array[0] = 2*delay_array[0]
-            #     delay_array[2] += (delay_array[2]-delay_array[1])
-            #     # Calculate the angle
-            #     direction_time_buffer[buffer_pointer] = np.atan2(delay_array[0]-delay_array[1],delay_array[2])-(np.pi/4)-(np.pi/2)
-            #     direction_time_buffer[buffer_pointer] *= (180/np.pi)
-            #     if direction_time_buffer[buffer_pointer] < -180: direction_time_buffer[buffer_pointer] += 360
-            # else:
-            #     direction_time_buffer[buffer_pointer] = 90 if (delay_array < 0) else -90
-            
-            # Calculate overall amplitude
-            # sig_amplitude_buffer[buffer_pointer] = np.mean(amplitude_array)
-
-            # buffer_pointer += 1
-            # if buffer_pointer >= 50: buffer_pointer = 0
-
+            for i in range(1,settings.captured_channels):
+                correlation_array[:,i-1] = np.correlate(capture_buffer[max_lag_idx,0],capture_buffer[max_lag_idx,i], 'full')
+            delay_array = np.argmax(correlation_array, axis=0) - max_lag
+            if (settings.captured_channels == 4):
+                # Account for the distance between microphones in the four-mic system
+                delay_array[0] = 2*delay_array[0]
+                delay_array[2] += (delay_array[2]-delay_array[1])
+                # Calculate the angle
+                direction_time = atan2(delay_array[0]-delay_array[1],delay_array[2])-(np.pi/4)-(np.pi/2)
+                direction_time *= (180/np.pi)
+                if direction_time < -180: direction_time += 360
+            else:
+                direction_time = 90 if (delay_array < 0) else -90
 
             # Add information to header
-            # header["direction"] = {"instantaneous_amp": direction_amp_buffer[buffer_pointer],
-            #                     "instantaneous_time": direction_time_buffer[buffer_pointer],
-            #                     "buffered_amp": np.median(direction_amp_buffer),
-            #                     "buffered_time": np.median(direction_time_buffer)}
-            # header["amplitude"] = np.mean(sig_amplitude_buffer)
-            header["direction"] = {"instantaneous_amp": 0.0,
-                                "instantaneous_time": 0.0,
-                                "buffered_amp": 0.0,
-                                "buffered_time": 0.0}
-            header["amplitude"] = 0.0
-
-            # Stop direction time
-            direction_duration = time() - direction_start_time
+            #header["direction_amp"] = direction_amp
+            #header["direction_time"] = direction_time
+            #header["amplitude"] = np.mean(amplitude_array)
             
             # Send encoded audio via UDP
             audio_data = bytes(encoder_buffer[:header["packet_length"]])
@@ -177,14 +149,10 @@ if args.stream:
                 print(f"Warning: Processing time {packet_duration:.3f}s > frame duration {settings.frame_duration}s")
             
             # Log stats periodically
-            # if header["sequence_number"] % 100 == 0:
-            #     stats = udp_sender.get_stats()
-            #     print(f"Sent: {stats['packets_sent']} packets, {stats['bytes_sent']} bytes")
-            #     print("Whole packet duration: {:.1f} ms".format(packet_duration*1000))
-            #     print("Encoding duration: {:.1f} ms".format(encoding_duration*1000))
-            #     print("Direction duration: {:.1f} ms".format(direction_duration*1000))
-            #     print("Buffered direction: (amplitude) {:0.1f} deg (samples) {:0.1f} deg".format(np.median(direction_amp_buffer), np.median(direction_time_buffer)))
-            #     print("Buffered amplitude: {:0.1f}".format(np.mean(sig_amplitude_buffer)))
+            if header["sequence_number"] % 100 == 0:
+                stats = udp_sender.get_stats()
+                print(f"Sent: {stats['packets_sent']} packets, {stats['bytes_sent']} bytes")
+                print("Whole packet duration: {:.1f} ms".format(packet_duration*1000))
 
     except KeyboardInterrupt:
         print("\nStopping...")
@@ -196,43 +164,33 @@ else:
     while time() - record_start_time < record_duration:
         capture.read()
         packet_start_time = time()
-
-        encoding_start_time = time()
         header = encoder.encode()
-        encoding_duration = time() - encoding_start_time
 
-        direction_start_time = time()
         amplitude_array = np.sqrt(np.mean(capture_buffer.astype(np.int32)**2, axis=0))
         loudest_index = np.argsort(amplitude_array)[::-1]
         if (settings.captured_channels == 4):
-            direction_amp_buffer[buffer_pointer] = np.atan2(amplitude_array[1]-amplitude_array[2],amplitude_array[3]-amplitude_array[0])-(np.pi/4)-(np.pi/2)
-            direction_amp_buffer[buffer_pointer] *= (180/np.pi)
-            if direction_amp_buffer[buffer_pointer] < -180: direction_amp_buffer[buffer_pointer] += 360
+            direction_amp = atan2(amplitude_array[1]-amplitude_array[2],amplitude_array[3]-amplitude_array[0])-(np.pi/4)-(np.pi/2)
+            direction_amp *= (180/np.pi)
+            if direction_amp < -180: direction_amp += 360
         else:
-            direction_amp_buffer[buffer_pointer] = 90 if (loudest_index[0] == 0) else -90
+            direction_amp = 90 if (loudest_index[0] == 0) else -90
 
         for i in range(1,settings.captured_channels):
-            correlation_array[:,i-1] = np.correlate(capture_buffer[:,0],capture_buffer[:,i], 'full')
-        delay_array = np.argmax(correlation_array[max_lag_idx]) - max_lag
+            correlation_array[:,i-1] = np.correlate(capture_buffer[max_lag_idx,0],capture_buffer[max_lag_idx,i], 'full')
+        delay_array = np.argmax(correlation_array, axis=0) - max_lag
         if (settings.captured_channels == 4):
             delay_array[0] = 2*delay_array[0]
             delay_array[2] += (delay_array[2]-delay_array[1])
-            direction_time_buffer[buffer_pointer] = np.atan2(delay_array[0]-delay_array[1],delay_array[2])-(np.pi/4)-(np.pi/2)
-            direction_time_buffer[buffer_pointer] *= (180/np.pi)
-            if direction_time_buffer[buffer_pointer] < -180: direction_time_buffer[buffer_pointer] += 360
+            direction_time = atan2(delay_array[0]-delay_array[1],delay_array[2])-(np.pi/4)-(np.pi/2)
+            direction_time *= (180/np.pi)
+            if direction_time < -180: direction_time += 360
         else:
-            direction_time_buffer[buffer_pointer] = 90 if (delay_array < 0) else -90
-        sig_amplitude_buffer[buffer_pointer] = np.mean(amplitude_array)
-        buffer_pointer += 1
-        if buffer_pointer >= 50: buffer_pointer = 0
+            direction_time = 90 if (delay_array < 0) else -90
 
-        header["direction"] = {"instantaneous_amp": direction_amp_buffer[buffer_pointer],
-                            "instantaneous_time": direction_time_buffer[buffer_pointer],
-                            "buffered_amp": np.median(direction_amp_buffer),
-                            "buffered_time": np.median(direction_time_buffer)}
-        header["amplitude"] = np.mean(sig_amplitude_buffer)
-        direction_duration = time() - direction_start_time
-
+        header["direction_amp"] = direction_amp
+        header["direction_time"] = direction_time
+        header["amplitude"] = np.mean(amplitude_array)
+                
         if (packet_queue.full()):
             packet_queue.get_nowait()
         packet_queue.put_nowait({"header": deepcopy(header), "data": bytes(encoder_buffer[0:header["packet_length"]])})
@@ -240,13 +198,10 @@ else:
         packet_duration = time() - packet_start_time
         if (packet_duration > settings.frame_duration):
             print("Wall-to-wall time is greater than frame duration (expected: <{}, actual: {})".format(settings.frame_duration, packet_duration))
-        if (time() - display_start_time > display_interval):
-            display_start_time = time()
+        if (header["sequence_number"] % 100 == 0):
             print("Whole packet duration: {:.1f} ms".format(packet_duration*1000))
-            print("Encoding duration: {:.1f} ms".format(encoding_duration*1000))
-            print("Direction duration: {:.1f} ms".format(direction_duration*1000))
-            print("Buffered direction: (amplitude) {:0.1f} deg (samples) {:0.1f} deg".format(np.median(direction_amp_buffer), np.median(direction_time_buffer)))
-            print("Buffered amplitude: {:0.1f}".format(np.mean(sig_amplitude_buffer)))
+            print("Direction: (amplitude) {:0.1f} deg (samples) {:0.1f} deg".format(direction_amp, direction_time))
+            print("Amplitude: {:0.1f}".format(np.mean(amplitude_array)))
     
     # Playback queued audio
     print("Playing back last 2 seconds...")
