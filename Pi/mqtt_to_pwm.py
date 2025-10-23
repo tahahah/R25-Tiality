@@ -2,6 +2,7 @@
 import argparse
 import json
 import logging
+import sys
 import threading
 import time
 from typing import List, Tuple, Optional
@@ -343,11 +344,26 @@ def main():
     args = parser.parse_args()
 
     log_level = getattr(logging, args.loglevel.upper())
-    logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
+    log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+    # Get root logger
+    logger = logging.getLogger()
+    logger.setLevel(log_level)
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(log_formatter)
+    logger.addHandler(console_handler)
+
+    # File handler
+    file_handler = logging.FileHandler('pi.log')
+    file_handler.setFormatter(log_formatter)
+    logger.addHandler(file_handler)
 
     ctrl = MotorController(ENABLE_PINS, MOTOR_PAIRS, args.freq)
 
     client = mqtt.Client()
+    client.user_data_set(file_handler)
 
     def on_connect(cli, _userdata, _flags, rc):
         if rc == 0:
@@ -357,8 +373,24 @@ def main():
         else:
             logging.error("Failed to connect to MQTT broker rc=%s", rc)
 
-    def on_message(cli, _userdata, msg):
+    def on_message(cli, userdata, msg):
+        file_handler = userdata
         payload = msg.payload.decode("utf-8", errors="ignore")
+
+        # Log receipt with timestamp for latency calculation
+        try:
+            cmd_data = json.loads(payload)
+            log_entry = {
+                'message_id': cmd_data.get('message_id'),
+                'pi_timestamp': time.time(),
+                'event': 'command_received_pi'
+            }
+            logging.info(json.dumps(log_entry))
+            if file_handler:
+                file_handler.flush() # Ensure log is written immediately
+        except (json.JSONDecodeError, AttributeError):
+            pass # Ignore if not a valid JSON command with metadata
+
         cmd = parse_command(payload)
         if not cmd:
             logging.warning("Unrecognized command payload; ignoring")
@@ -389,6 +421,7 @@ def main():
         client.loop_stop()
         client.disconnect()
         ctrl.cleanup()
+        logging.shutdown()
 
 
 if __name__ == "__main__":
